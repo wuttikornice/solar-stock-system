@@ -97,6 +97,11 @@ const App = () => {
         model: item.Model,
         status: 'In Stock',
         projectName: null,
+        entity: null,
+        projectType: null,
+        refNo: item['Ref No'] || item['Reference No'] || '-',
+        supplier: item['Supplier'] || '-',
+        cost: item['Cost'] || '-',
         inDate: item.Date,
         outDate: null
       };
@@ -107,7 +112,10 @@ const App = () => {
       const sn = item['Serial Number'];
       if (!sn || !serialMap[sn]) return;
       serialMap[sn].status = 'Deployed';
-      serialMap[sn].projectName = item['Project Name'] || 'Unknown Project';
+      serialMap[sn].projectName = item['Project Name'] || item['Project'] || 'Unknown Project';
+      serialMap[sn].entity = item['Entity'] || '-';
+      serialMap[sn].projectType = item['Project Type'] || '-';
+      serialMap[sn].outRefNo = item['Ref No'] || item['Reference No'] || '-';
       serialMap[sn].outDate = item.Date;
     });
 
@@ -350,7 +358,15 @@ const App = () => {
             <div className="table-container">
               <table>
                 <thead>
-                  <tr><th>Serial Number</th><th>Product ID / Model</th><th>Current Status</th><th>Assignment / Location</th><th>Date</th></tr>
+                  <tr>
+                    <th>Serial Number</th>
+                    <th>Product / Model</th>
+                    <th>Status</th>
+                    <th>Ref No (In/Out)</th>
+                    <th>Entity / Supplier</th>
+                    <th>Project / Type</th>
+                    <th>Dates</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {displayedSerials.map((s, idx) => (
@@ -365,8 +381,22 @@ const App = () => {
                           {s.status === 'In Stock' ? 'In Stock' : 'Deployed'}
                         </span>
                       </td>
-                      <td>{s.projectName || 'Main Warehouse'}</td>
-                      <td>{s.status === 'In Stock' ? s.inDate : s.outDate}</td>
+                      <td>
+                        <div style={{ fontSize: '0.75rem', color: '#666' }}>In: {s.refNo}</div>
+                        {s.status === 'Deployed' && <div style={{ fontSize: '0.75rem', color: THEME.danger, fontWeight: 600 }}>Out: {s.outRefNo}</div>}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.75rem', color: '#666' }}>Src: {s.supplier}</div>
+                        {s.status === 'Deployed' && <div style={{ fontSize: '0.75rem', color: THEME.primary }}>Ent: {s.entity}</div>}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{s.projectName || 'Warehouse'}</div>
+                        {s.status === 'Deployed' && <div style={{ fontSize: '0.75rem', color: '#666' }}>Type: {s.projectType}</div>}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.75rem' }}>IN: {s.inDate}</div>
+                        {s.status === 'Deployed' && <div style={{ fontSize: '0.75rem', color: THEME.danger }}>OUT: {s.outDate}</div>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
