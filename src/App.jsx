@@ -520,7 +520,7 @@ const App = () => {
                     <option value="">Select Company...</option>
                     <option value="Simat">Simat Technology (HQ)</option>
                     <option value="NPE">NPE (PPA)</option>
-                    <option value="Altimo">Altimo Control (EPC)</option>
+                    <option value="Ultimo Control">Ultimo Control (EPC)</option>
                   </select>
                 </div>
 
