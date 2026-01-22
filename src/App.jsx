@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, Cell
+  AreaChart, Area, Cell, PieChart, Pie
 } from 'recharts';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
@@ -28,6 +28,9 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard');
   const [expandedProduct, setExpandedProduct] = useState(null);
+
+  // New State for Serial Tracking Tab
+  const [serialViewMode, setSerialViewMode] = useState('all'); // 'all', 'in', 'out'
 
   useEffect(() => {
     const fetchAllSheets = async () => {
@@ -116,7 +119,7 @@ const App = () => {
 
     const catMap = {};
     stockData.forEach(p => {
-      const cat = p.Category || 'Uncategorized';
+      const cat = p.Category || 'ไม่ระบุหมวดหมู่';
       catMap[cat] = (catMap[cat] || 0) + p.CalculatedBalance;
     });
 
@@ -132,7 +135,11 @@ const App = () => {
       if (log.t === 'IN') dailyMap[date].in++;
       else dailyMap[date].out++;
     });
-    const dailyTrend = Object.values(dailyMap).sort((a, b) => new Date(a.date.split('/').reverse().join('-')) - new Date(b.date.split('/').reverse().join('-'))).slice(-15);
+    const dailyTrend = Object.values(dailyMap).sort((a, b) => {
+      const da = a.date.split('/').reverse().join('-');
+      const db = b.date.split('/').reverse().join('-');
+      return new Date(da) - new Date(db);
+    }).slice(-15);
 
     return { totalUnits, lowStockItems, categories, dailyTrend, allMovement: stockStatus.in.length + stockStatus.out.length };
   }, [stockData, stockStatus]);
@@ -141,9 +148,9 @@ const App = () => {
     if (!url) return null;
     // Handle Google Drive Links
     if (url.includes('drive.google.com')) {
-      const idMatch = url.match(/\/d\/(.*?)\/|\?id=(.*?)$/);
+      const idMatch = url.match(/\/d\/(.*?)\/|\?id=(.*?)$|id=(.*?)(&|$)/);
       if (idMatch) {
-        const id = idMatch[1] || idMatch[2];
+        const id = idMatch[1] || idMatch[2] || idMatch[3];
         return `https://drive.google.com/uc?export=view&id=${id}`;
       }
     }
@@ -159,25 +166,35 @@ const App = () => {
       return Object.values(reconciledStock).filter(s =>
         s.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (s.projectName && s.projectName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        s.productId.toLowerCase().includes(searchTerm.toLowerCase())
+        (s.productId && s.productId.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (s.model && s.model.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
     return [];
   }, [searchTerm, stockData, reconciledStock, currentView]);
 
+  const displayedSerials = useMemo(() => {
+    if (currentView !== 'serial_tracking') return [];
+    return filteredItems.filter(s => {
+      if (serialViewMode === 'in') return s.status === 'In Stock';
+      if (serialViewMode === 'out') return s.status === 'Deployed';
+      return true;
+    });
+  }, [filteredItems, serialViewMode, currentView]);
+
   const getStockStatus = (current, min) => {
     const cur = parseFloat(current || 0);
     const m = parseFloat(min || 0);
-    if (cur === 0) return { label: 'Out of Stock', class: 'stock-empty' };
-    if (cur <= m) return { label: 'Low Stock', class: 'stock-low' };
-    return { label: 'In Stock', class: 'stock-healthy' };
+    if (cur === 0) return { label: 'สินค้าหมด', class: 'stock-empty' };
+    if (cur <= m) return { label: 'สินค้าเหลือน้อย', class: 'stock-low' };
+    return { label: 'มีสินค้า', class: 'stock-healthy' };
   };
 
   if (loading) return (
     <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f4f7f6' }}>
       <div style={{ textAlign: 'center' }}>
-        <h2 style={{ color: THEME.primary, marginBottom: '1rem' }}>Sychronizing Warehouse...</h2>
-        <p>Calculating Serial Number Reconciliation</p>
+        <h2 style={{ color: THEME.primary, marginBottom: '1rem' }}>กำลังซิงโครไนซ์คลังสินค้า...</h2>
+        <p>กำลังคำนวณการกระทบยอดซีเรียลเนมเบอร์</p>
       </div>
     </div>
   );
@@ -187,36 +204,36 @@ const App = () => {
       <aside className="sidebar">
         <h2><span style={{ color: THEME.secondary }}>☀️</span> CMI Solar</h2>
         <nav style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>Dashboard</div>
-          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Operations</div>
-          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 Serial Tracking</div>
-          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 Reports</div>
+          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>แดชบอร์ด</div>
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>การดำเนินงาน</div>
+          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 ตรวจสอบซีเรียล</div>
+          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 รายงาน</div>
         </nav>
-        <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Reconciliation: Done</div>
+        <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>การกระทบยอด: เสร็จสมบูรณ์</div>
       </aside>
 
       <main className="main-content">
         <header className="header" style={{ marginBottom: '2rem' }}>
           <div>
             <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: THEME.primary }}>
-              {currentView === 'dashboard' && 'Inventory Dashboard'}
-              {currentView === 'serial_tracking' && 'Serial Number Reconciliation'}
-              {currentView === 'reports' && 'Strategic Analysis'}
+              {currentView === 'dashboard' && 'แดชบอร์ดพัสดุคงคลัง'}
+              {currentView === 'serial_tracking' && 'การตรวจสอบซีเรียลเนมเบอร์'}
+              {currentView === 'reports' && 'การวิเคราะห์เชิงกลยุทธ์'}
             </h1>
             <p style={{ color: '#666' }}>
-              {currentView === 'dashboard' && 'Click product to view individual serial status'}
-              {currentView === 'serial_tracking' && 'Track any item from entry to project site'}
-              {currentView === 'reports' && 'Warehouse movement and category distribution'}
+              {currentView === 'dashboard' && 'คลิกที่ผลิตภัณฑ์เพื่อดูสถานะซีเรียลรายชิ้น'}
+              {currentView === 'serial_tracking' && 'ติดตามรายการสินค้าตั้งแต่รับเข้าจนถึงหน้างาน'}
+              {currentView === 'reports' && 'การเคลื่อนไหวคลังสินค้าและการกระจายหมวดหมู่'}
             </p>
           </div>
-          <input type="text" placeholder="Search..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <input type="text" placeholder="ค้นหา..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </header>
 
         {currentView === 'dashboard' && (
           <div className="table-container">
             <table>
               <thead>
-                <tr><th>Image</th><th>ID</th><th>Category</th><th>Model</th><th>In</th><th>Out</th><th>Balance</th><th>Status</th></tr>
+                <tr><th>รูปภาพ</th><th>รหัส</th><th>หมวดหมู่</th><th>รุ่น</th><th>รับเข้า</th><th>จ่ายออก</th><th>คงเหลือ</th><th>สถานะ</th></tr>
               </thead>
               <tbody>
                 {filteredItems.map((item, idx) => {
@@ -228,7 +245,16 @@ const App = () => {
                       <tr className="tr" onClick={() => setExpandedProduct(isExpanded ? null : item['Product ID'])}>
                         <td>
                           {displayImage ? (
-                            <img src={displayImage} alt={item.Model} className="product-thumb" />
+                            <img
+                              src={displayImage}
+                              alt={item.Model}
+                              className="product-thumb"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                e.target.insertAdjacentHTML('afterend', '<div class="product-thumb-placeholder">📦</div>');
+                              }}
+                            />
                           ) : (
                             <div className="product-thumb-placeholder">📦</div>
                           )}
@@ -239,25 +265,35 @@ const App = () => {
                         <td style={{ color: THEME.success }}>{item.totalIn}</td>
                         <td style={{ color: THEME.danger }}>{item.totalOut}</td>
                         <td style={{ fontWeight: 800 }}>{item.CalculatedBalance}</td>
-                        <td><span className={`stock-badge ${status.class}`}><span className="pulsate"></span>{status.label}</span></td>
+                        <td>
+                          <div className={`stock-badge ${status.class}`}>
+                            <div className="pulsate"></div>
+                            {status.label}
+                          </div>
+                        </td>
                       </tr>
                       {isExpanded && (
                         <tr className="expanded-row">
-                          <td colSpan="7">
+                          <td colSpan="8">
                             <div className="serial-list">
-                              <h4 style={{ padding: '0 1rem', color: THEME.primary }}>Serial Status for {item.Model}</h4>
-                              {item.serials.map((s, sidx) => (
-                                <div key={sidx} className="serial-item">
-                                  <span className="serial-tag">{s.serial}</span>
-                                  <span className={`status-tag ${s.status === 'In Stock' ? 'status-in-stock' : 'status-deployed'}`}>
-                                    {s.status}
-                                  </span>
-                                  <span style={{ fontSize: '0.85rem' }}>
-                                    {s.status === 'Deployed' ? `📍 Project: ${s.projectName}` : `📥 Recvd on ${s.inDate}`}
-                                  </span>
+                              <h4 style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>รายการซีเรียลเนมเบอร์ ({item.serials.length})</h4>
+                              {item.serials.length > 0 ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.5rem' }}>
+                                  {item.serials.map((s, sIdx) => (
+                                    <div key={sIdx} className="serial-item">
+                                      <span className="serial-tag">{s.serial}</span>
+                                      <span className={`status-tag ${s.status === 'In Stock' ? 'status-in-stock' : 'status-deployed'}`}>
+                                        {s.status === 'In Stock' ? 'ในคลัง' : 'ติดตั้งแล้ว'}
+                                      </span>
+                                      <span style={{ fontSize: '0.75rem', color: '#666' }}>
+                                        {s.status === 'Deployed' ? `โครงการ: ${s.projectName}` : `รับเมื่อ: ${s.inDate}`}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                              {item.serials.length === 0 && <p style={{ padding: '1rem' }}>No serial data found for this product.</p>}
+                              ) : (
+                                <p style={{ fontSize: '0.75rem', color: '#999' }}>ไม่มีข้อมูลซีเรียล</p>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -271,59 +307,102 @@ const App = () => {
         )}
 
         {currentView === 'serial_tracking' && (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr><th>Serial Number</th><th>Product ID / Model</th><th>Current Status</th><th>Assignment / Location</th><th>Date</th></tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((s, idx) => (
-                  <tr key={idx} className="tr">
-                    <td><span className="serial-tag">{s.serial}</span></td>
-                    <td><div style={{ fontSize: '0.75rem', color: '#666' }}>{s.productId}</div>{s.model}</td>
-                    <td><span className={`status-tag ${s.status === 'In Stock' ? 'status-in-stock' : 'status-deployed'}`}>{s.status}</span></td>
-                    <td><strong>{s.status === 'Deployed' ? s.projectName : 'Main Warehouse'}</strong></td>
-                    <td>{s.status === 'Deployed' ? s.outDate : s.inDate}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+              <button
+                className={`badge ${serialViewMode === 'all' ? 'badge-blue' : ''}`}
+                style={{ cursor: 'pointer', border: 'none', padding: '0.5rem 1rem' }}
+                onClick={() => setSerialViewMode('all')}
+              >ทั้งหมด</button>
+              <button
+                className={`badge ${serialViewMode === 'in' ? 'badge-green' : ''}`}
+                style={{ cursor: 'pointer', border: 'none', padding: '0.5rem 1rem' }}
+                onClick={() => setSerialViewMode('in')}
+              >ในคลัง</button>
+              <button
+                className={`badge ${serialViewMode === 'out' ? 'badge-orange' : ''}`}
+                style={{ cursor: 'pointer', border: 'none', padding: '0.5rem 1rem' }}
+                onClick={() => setSerialViewMode('out')}
+              >ติดตั้งแล้ว</button>
+            </div>
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr><th>ซีเรียลเนมเบอร์</th><th>รหัสผลิตภัณฑ์ / รุ่น</th><th>สถานะปัจจุบัน</th><th>โครงการ / สถานที่</th><th>วันที่</th></tr>
+                </thead>
+                <tbody>
+                  {displayedSerials.map((s, idx) => (
+                    <tr key={idx} className="tr">
+                      <td><span className="serial-tag">{s.serial}</span></td>
+                      <td>
+                        <div style={{ fontSize: '0.75rem', color: '#666' }}>{s.productId}</div>
+                        <strong>{s.model}</strong>
+                      </td>
+                      <td>
+                        <span className={`status-tag ${s.status === 'In Stock' ? 'status-in-stock' : 'status-deployed'}`}>
+                          {s.status === 'In Stock' ? 'ในคลัง' : 'ติดตั้งแล้ว'}
+                        </span>
+                      </td>
+                      <td>{s.projectName || 'คลังสินค้าหลัก'}</td>
+                      <td>{s.status === 'In Stock' ? s.inDate : s.outDate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {currentView === 'reports' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <section className="stats-grid">
-              <div className="stat-card"><h3>Total Stock</h3><div className="value">{reportData.totalUnits}</div></div>
-              <div className="stat-card"><h3>Transactions</h3><div className="value">{reportData.allMovement}</div></div>
-              <div className="stat-card"><h3>Critical SKUs</h3><div className="value" style={{ color: THEME.danger }}>{reportData.lowStockItems}</div></div>
-            </section>
+          <div>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <h3>จำนวนรวมทั้งหมด</h3>
+                <div className="value" style={{ color: THEME.primary }}>{reportData.totalUnits}</div>
+                <div style={{ fontSize: '0.75rem', color: '#666' }}>หน่วยในคลังสินค้า</div>
+              </div>
+              <div className="stat-card">
+                <h3>รายการที่เหลือน้อย</h3>
+                <div className="value" style={{ color: THEME.secondary }}>{reportData.lowStockItems}</div>
+                <div style={{ fontSize: '0.75rem', color: '#666' }}>รายการที่ต้องสั่งเพิ่ม</div>
+              </div>
+              <div className="stat-card">
+                <h3>การเคลื่อนไหวทั้งหมด</h3>
+                <div className="value" style={{ color: THEME.success }}>{reportData.allMovement}</div>
+                <div style={{ fontSize: '0.75rem', color: '#666' }}>รวมรายการรับเข้า/จ่ายออก</div>
+              </div>
+            </div>
+
             <div className="report-grid">
               <div className="chart-card">
-                <h3>Movement Trend</h3>
-                <div style={{ height: '300px' }}>
+                <h3 style={{ marginBottom: '1.5rem' }}>แนวโน้มการดำเนินงาน (15 วันล่าสุด)</h3>
+                <div style={{ height: 300 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={reportData.dailyTrend}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
-                      <Area type="monotone" dataKey="in" name="In" stroke={THEME.success} fill={THEME.success} fillOpacity={0.2} />
-                      <Area type="monotone" dataKey="out" name="Out" stroke={THEME.danger} fill={THEME.danger} fillOpacity={0.2} />
+                      <Area type="monotone" dataKey="in" name="รับเข้า" stroke={THEME.success} fill={THEME.success} fillOpacity={0.1} />
+                      <Area type="monotone" dataKey="out" name="จ่ายออก" stroke={THEME.danger} fill={THEME.danger} fillOpacity={0.1} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
+
               <div className="chart-card">
-                <h3>Units by Category</h3>
-                <div style={{ height: '300px' }}>
+                <h3 style={{ marginBottom: '1.5rem' }}>จำนวนตามหมวดหมู่</h3>
+                <div style={{ height: 300 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={reportData.categories} layout="vertical">
+                    <BarChart data={reportData.categories} layout="vertical" margin={{ left: 40 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                       <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 10 }} />
+                      <YAxis dataKey="name" type="category" width={100} style={{ fontSize: '0.7rem' }} />
                       <Tooltip />
-                      <Bar dataKey="value" name="Balance">
-                        {reportData.categories.map((entry, index) => <Cell key={`cell-${index}`} fill={THEME.chartColors[index % THEME.chartColors.length]} />)}
+                      <Bar dataKey="value" name="จำนวน">
+                        {reportData.categories.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={THEME.chartColors[index % THEME.chartColors.length]} />
+                        ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
