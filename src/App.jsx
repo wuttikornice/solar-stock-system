@@ -32,6 +32,22 @@ const App = () => {
   // New State for Serial Tracking Tab
   const [serialViewMode, setSerialViewMode] = useState('all'); // 'all', 'in', 'out'
 
+  // New State for Manage Stock Form
+  const [manageMode, setManageMode] = useState('out'); // 'in' or 'out'
+  const [formData, setFormData] = useState({
+    productId: '',
+    serial: '',
+    entity: '',
+    projectType: '',
+    refNumber: '',
+    date: new Date().toLocaleDateString('th-TH'),
+    project: '',
+    supplier: '',
+    cost: ''
+  });
+  const [formLoading, setFormLoading] = useState(false);
+  const [formStatus, setFormStatus] = useState({ type: '', message: '' });
+
   useEffect(() => {
     const fetchAllSheets = async () => {
       try {
@@ -208,6 +224,8 @@ const App = () => {
           <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Operations</div>
           <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 Serial Tracking</div>
           <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 Reports</div>
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Admin</div>
+          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ Manage Stock</div>
         </nav>
         <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Reconciliation: Done</div>
       </aside>
@@ -408,6 +426,161 @@ const App = () => {
                   </ResponsiveContainer>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {currentView === 'manage_stock' && (
+          <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+              <button
+                className={`badge ${manageMode === 'out' ? 'badge-orange' : ''}`}
+                style={{ flex: 1, padding: '1rem', cursor: 'pointer', border: '1px solid #ddd', borderRadius: '8px' }}
+                onClick={() => setManageMode('out')}
+              >
+                📤 Stock Out (EPC / PPA / Sales)
+              </button>
+              <button
+                className={`badge ${manageMode === 'in' ? 'badge-green' : ''}`}
+                style={{ flex: 1, padding: '1rem', cursor: 'pointer', border: '1px solid #ddd', borderRadius: '8px' }}
+                onClick={() => setManageMode('in')}
+              >
+                📥 Stock In (New Purchase / RMA)
+              </button>
+            </div>
+
+            <div className="chart-card" style={{ padding: '2rem' }}>
+              <h2 style={{ marginBottom: '1.5rem', color: THEME.primary }}>
+                {manageMode === 'out' ? 'Transaction: Stock Out' : 'Transaction: Stock In'}
+              </h2>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Product</label>
+                  <select
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.productId}
+                    onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
+                  >
+                    <option value="">Select Product...</option>
+                    {products.map(p => (
+                      <option key={p['Product ID']} value={p['Product ID']}>{p.Model} ({p['Product ID']})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Serial Number</label>
+                  <input
+                    type="text"
+                    placeholder="Enter Serial..."
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.serial}
+                    onChange={(e) => setFormData({ ...formData, serial: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Requesting Entity (Company)</label>
+                  <select
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.entity}
+                    onChange={(e) => setFormData({ ...formData, entity: e.target.value })}
+                  >
+                    <option value="">Select Company...</option>
+                    <option value="Simat">Simat Technology (HQ)</option>
+                    <option value="NPE">NPE (PPA)</option>
+                    <option value="Altimo">Altimo Control (EPC)</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Type</label>
+                  <select
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.projectType}
+                    onChange={(e) => setFormData({ ...formData, projectType: e.target.value })}
+                  >
+                    <option value="">Select Type...</option>
+                    <option value="EPC">EPC Project</option>
+                    <option value="PPA">PPA Project</option>
+                    <option value="Retail">Retail Sales</option>
+                    <option value="Wholesale">Whole Sales</option>
+                    <option value="Service">Service / Warranty</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Reference PO / Tax Invoice #</label>
+                  <input
+                    type="text"
+                    placeholder="Ref No..."
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.refNumber}
+                    onChange={(e) => setFormData({ ...formData, refNumber: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Name / Customer</label>
+                  <input
+                    type="text"
+                    placeholder="Enter Details..."
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                    value={formData.project}
+                    onChange={(e) => setFormData({ ...formData, project: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: '2rem' }}>
+                <button
+                  style={{
+                    width: '100%',
+                    padding: '1rem',
+                    background: manageMode === 'out' ? THEME.secondary : THEME.success,
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    opacity: formLoading ? 0.7 : 1
+                  }}
+                  disabled={formLoading}
+                  onClick={() => {
+                    setFormLoading(true);
+                    setFormStatus({ type: 'info', message: 'Connecting to Google API...' });
+                    setTimeout(() => {
+                      setFormLoading(false);
+                      setFormStatus({ type: 'success', message: 'Transaction Recorded Successfully! (Mocked)' });
+                      // Reset form
+                      setFormData({ ...formData, serial: '', refNumber: '', project: '' });
+                    }, 2000);
+                  }}
+                >
+                  {formLoading ? 'Recording Transaction...' : 'Confirm Transaction'}
+                </button>
+                {formStatus.message && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '1rem',
+                    borderRadius: '6px',
+                    background: formStatus.type === 'success' ? '#d1fae5' : '#dbeafe',
+                    color: formStatus.type === 'success' ? '#065f46' : '#1e40af',
+                    textAlign: 'center'
+                  }}>
+                    {formStatus.message}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '2rem', padding: '1rem', background: '#fff9db', borderRadius: '8px', border: '1px solid #fab005' }}>
+              <h4 style={{ color: '#862e01', marginBottom: '0.5rem' }}>💡 API Integration Note</h4>
+              <p style={{ fontSize: '0.875rem', color: '#862e01' }}>
+                This form currently runs in **Simulation Mode**. To enable actual data recording to Google Sheets,
+                you need to deploy a Google Apps Script and paste the API URL into this application.
+              </p>
             </div>
           </div>
         )}
