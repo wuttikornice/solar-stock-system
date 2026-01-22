@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbzPN-9pn3P7K-GgQ4TculH01OltA5_fZcQx-jRcr_SLLoiPXyWCGE70_k1VDMRmIobloQ/exec';
 
 const GIDS = {
   PRODUCTS: '0',
@@ -547,15 +548,48 @@ const App = () => {
                     opacity: formLoading ? 0.7 : 1
                   }}
                   disabled={formLoading}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (!formData.productId || !formData.serial || !formData.refNumber) {
+                      setFormStatus({ type: 'error', message: 'Please fill in all required fields (Product, Serial, Ref No)' });
+                      return;
+                    }
+
                     setFormLoading(true);
-                    setFormStatus({ type: 'info', message: 'Connecting to Google API...' });
-                    setTimeout(() => {
+                    setFormStatus({ type: 'info', message: 'Sending data to Google Sheets...' });
+
+                    try {
+                      const payload = {
+                        type: manageMode,
+                        ...formData
+                      };
+
+                      await fetch(GAS_API_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // Essential for GAS
+                        headers: {
+                          'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                      });
+
+                      setFormStatus({ type: 'success', message: 'Transaction Recorded Successfully! (Live Update)' });
+
+                      // Refresh form
+                      setFormData({
+                        ...formData,
+                        serial: '',
+                        refNumber: '',
+                        project: ''
+                      });
+
+                      // Wait 3 seconds and reload to see new data
+                      setTimeout(() => window.location.reload(), 3000);
+
+                    } catch (error) {
+                      setFormStatus({ type: 'error', message: 'Connection Error: ' + error.toString() });
+                    } finally {
                       setFormLoading(false);
-                      setFormStatus({ type: 'success', message: 'Transaction Recorded Successfully! (Mocked)' });
-                      // Reset form
-                      setFormData({ ...formData, serial: '', refNumber: '', project: '' });
-                    }, 2000);
+                    }
                   }}
                 >
                   {formLoading ? 'Recording Transaction...' : 'Confirm Transaction'}
@@ -565,8 +599,8 @@ const App = () => {
                     marginTop: '1rem',
                     padding: '1rem',
                     borderRadius: '6px',
-                    background: formStatus.type === 'success' ? '#d1fae5' : '#dbeafe',
-                    color: formStatus.type === 'success' ? '#065f46' : '#1e40af',
+                    background: formStatus.type === 'success' ? '#d1fae5' : (formStatus.type === 'error' ? '#fee2e2' : '#dbeafe'),
+                    color: formStatus.type === 'success' ? '#065f46' : (formStatus.type === 'error' ? '#991b1b' : '#1e40af'),
                     textAlign: 'center'
                   }}>
                     {formStatus.message}
@@ -575,11 +609,10 @@ const App = () => {
               </div>
             </div>
 
-            <div style={{ marginTop: '2rem', padding: '1rem', background: '#fff9db', borderRadius: '8px', border: '1px solid #fab005' }}>
-              <h4 style={{ color: '#862e01', marginBottom: '0.5rem' }}>💡 API Integration Note</h4>
-              <p style={{ fontSize: '0.875rem', color: '#862e01' }}>
-                This form currently runs in **Simulation Mode**. To enable actual data recording to Google Sheets,
-                you need to deploy a Google Apps Script and paste the API URL into this application.
+            <div style={{ marginTop: '2rem', padding: '1rem', background: '#e7f5ff', borderRadius: '8px', border: '1px solid #339af0' }}>
+              <h4 style={{ color: '#1864ab', marginBottom: '0.5rem' }}>✅ API Connected</h4>
+              <p style={{ fontSize: '0.875rem', color: '#1864ab' }}>
+                System is now connected to your Google Sheets API. Transactions will be recorded in real-time.
               </p>
             </div>
           </div>
