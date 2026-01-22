@@ -35,9 +35,11 @@ const App = () => {
 
   // New State for Manage Stock Form
   const [manageMode, setManageMode] = useState('out'); // 'in' or 'out'
+  const [bulkMode, setBulkMode] = useState(false); // New state for bulk entry
   const [formData, setFormData] = useState({
     productId: '',
     serial: '',
+    bulkSerials: '', // New field for bulk entry
     entity: '',
     projectType: '',
     refNumber: '',
@@ -48,6 +50,7 @@ const App = () => {
   });
   const [formLoading, setFormLoading] = useState(false);
   const [formStatus, setFormStatus] = useState({ type: '', message: '' });
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
 
   useEffect(() => {
     const fetchAllSheets = async () => {
@@ -451,9 +454,24 @@ const App = () => {
             </div>
 
             <div className="chart-card" style={{ padding: '2rem' }}>
-              <h2 style={{ marginBottom: '1.5rem', color: THEME.primary }}>
-                {manageMode === 'out' ? 'Transaction: Stock Out' : 'Transaction: Stock In'}
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 style={{ color: THEME.primary, margin: 0 }}>
+                  {manageMode === 'out' ? 'Transaction: Stock Out' : 'Transaction: Stock In'}
+                </h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8f9fa', padding: '0.4rem 0.8rem', borderRadius: '20px', border: '1px solid #dee2e6' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Mode:</span>
+                  <button
+                    className={`badge ${!bulkMode ? 'badge-blue' : ''}`}
+                    onClick={() => setBulkMode(false)}
+                    style={{ border: 'none', cursor: 'pointer', outline: 'none' }}
+                  >Single</button>
+                  <button
+                    className={`badge ${bulkMode ? 'badge-orange' : ''}`}
+                    onClick={() => setBulkMode(true)}
+                    style={{ border: 'none', cursor: 'pointer', outline: 'none' }}
+                  >Bulk Paste</button>
+                </div>
+              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                 <div className="form-group">
@@ -470,15 +488,26 @@ const App = () => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Serial Number</label>
-                  <input
-                    type="text"
-                    placeholder="Enter Serial..."
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
-                    value={formData.serial}
-                    onChange={(e) => setFormData({ ...formData, serial: e.target.value })}
-                  />
+                <div className="form-group" style={{ gridColumn: bulkMode ? 'span 2' : 'auto' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                    {bulkMode ? 'Serial Numbers (One per line)' : 'Serial Number'}
+                  </label>
+                  {bulkMode ? (
+                    <textarea
+                      placeholder="Paste serials from Excel...&#10;SN001&#10;SN002&#10;SN003"
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd', minHeight: '120px', fontFamily: 'monospace' }}
+                      value={formData.bulkSerials}
+                      onChange={(e) => setFormData({ ...formData, bulkSerials: e.target.value })}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="Enter Serial..."
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                      value={formData.serial}
+                      onChange={(e) => setFormData({ ...formData, serial: e.target.value })}
+                    />
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -549,50 +578,71 @@ const App = () => {
                   }}
                   disabled={formLoading}
                   onClick={async () => {
-                    if (!formData.productId || !formData.serial || !formData.refNumber) {
-                      setFormStatus({ type: 'error', message: 'Please fill in all required fields (Product, Serial, Ref No)' });
+                    // Validation
+                    const hasSingleSerial = !bulkMode && formData.serial.trim();
+                    const hasBulkSerials = bulkMode && formData.bulkSerials.trim();
+
+                    if (!formData.productId || !formData.refNumber || (!hasSingleSerial && !hasBulkSerials)) {
+                      setFormStatus({ type: 'error', message: 'Please fill in required fields (Product, Serial/Bulk, Ref No)' });
                       return;
                     }
 
+                    const serialsToProcess = bulkMode
+                      ? formData.bulkSerials.split(/[\n,]+/).map(s => s.trim()).filter(s => s)
+                      : [formData.serial.trim()];
+
                     setFormLoading(true);
-                    setFormStatus({ type: 'info', message: 'Sending data to Google Sheets...' });
+                    setUploadProgress({ current: 0, total: serialsToProcess.length });
 
                     try {
-                      const payload = {
-                        type: manageMode,
-                        ...formData
-                      };
+                      for (let i = 0; i < serialsToProcess.length; i++) {
+                        const sn = serialsToProcess[i];
+                        setUploadProgress({ current: i + 1, total: serialsToProcess.length });
+                        setFormStatus({ type: 'info', message: `Sending Serial ${i + 1}/${serialsToProcess.length}: ${sn}` });
 
-                      await fetch(GAS_API_URL, {
-                        method: 'POST',
-                        mode: 'no-cors', // Essential for GAS
-                        headers: {
-                          'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(payload)
-                      });
+                        const payload = {
+                          type: manageMode,
+                          ...formData,
+                          serial: sn
+                        };
+                        // Remove bulkSerials from payload to keep it clean
+                        delete payload.bulkSerials;
 
-                      setFormStatus({ type: 'success', message: 'Transaction Recorded Successfully! (Live Update)' });
+                        await fetch(GAS_API_URL, {
+                          method: 'POST',
+                          mode: 'no-cors',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(payload)
+                        });
 
-                      // Refresh form
+                        // Small delay to prevent API throttling
+                        if (serialsToProcess.length > 1) await new Promise(r => setTimeout(r, 200));
+                      }
+
+                      setFormStatus({ type: 'success', message: `Perfect! ${serialsToProcess.length} serials recorded successfully.` });
+
+                      // Clear form
                       setFormData({
                         ...formData,
                         serial: '',
+                        bulkSerials: '',
                         refNumber: '',
                         project: ''
                       });
 
-                      // Wait 3 seconds and reload to see new data
                       setTimeout(() => window.location.reload(), 3000);
 
                     } catch (error) {
                       setFormStatus({ type: 'error', message: 'Connection Error: ' + error.toString() });
                     } finally {
                       setFormLoading(false);
+                      setUploadProgress({ current: 0, total: 0 });
                     }
                   }}
                 >
-                  {formLoading ? 'Recording Transaction...' : 'Confirm Transaction'}
+                  {formLoading
+                    ? `Processing... (${uploadProgress.current}/${uploadProgress.total})`
+                    : `Confirm ${bulkMode ? 'Bulk Entry' : 'Transaction'}`}
                 </button>
                 {formStatus.message && (
                   <div style={{
