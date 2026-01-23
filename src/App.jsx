@@ -525,7 +525,14 @@ const App = () => {
                                 onError={(e) => {
                                   e.target.onerror = null;
                                   e.target.style.display = 'none';
-                                  e.target.insertAdjacentHTML('afterend', '<div class="product-thumb-placeholder">📦</div>');
+                                  // Find the parent td and add placeholder if not already there
+                                  const parent = e.target.parentNode;
+                                  if (!parent.querySelector('.product-thumb-placeholder')) {
+                                    const placeholder = document.createElement('div');
+                                    placeholder.className = 'product-thumb-placeholder';
+                                    placeholder.innerText = '📦';
+                                    parent.appendChild(placeholder);
+                                  }
                                 }}
                               />
                             ) : (
@@ -789,7 +796,28 @@ const App = () => {
                   <tbody>
                     {filteredItems.map((item, idx) => (
                       <tr key={idx} className="tr">
-                        <td><img src={getDirectImageUrl(item.Image)} className="product-thumb" alt="" /></td>
+                        <td>
+                          {item.Image || item.image ? (
+                            <img
+                              src={getDirectImageUrl(item.Image || item.image)}
+                              className="product-thumb"
+                              alt=""
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.style.display = 'none';
+                                const parent = e.target.parentNode;
+                                if (!parent.querySelector('.product-thumb-placeholder')) {
+                                  const placeholder = document.createElement('div');
+                                  placeholder.className = 'product-thumb-placeholder';
+                                  placeholder.innerText = '📦';
+                                  parent.appendChild(placeholder);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="product-thumb-placeholder">📦</div>
+                          )}
+                        </td>
                         <td><span className="badge badge-blue">{item['Product ID'] || item.id}</span></td>
                         <td>{item.Category || item.category}</td>
                         <td>{item.Brand || item.brand}</td>
