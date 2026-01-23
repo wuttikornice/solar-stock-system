@@ -258,9 +258,9 @@ const App = () => {
   const getDirectImageUrl = (url) => {
     if (!url) return null;
     if (url.includes('drive.google.com')) {
-      const idMatch = url.match(/\/d\/(.*?)\/|\?id=(.*?)$|id=(.*?)(&|$)/);
+      const idMatch = url.match(/\/d\/(.*?)\/|id=(.*?)(&|$)|open\?id=(.*?)(&|$)/);
       if (idMatch) {
-        const id = idMatch[1] || idMatch[2] || idMatch[3];
+        const id = idMatch[1] || idMatch[2] || idMatch[4];
         return `https://drive.google.com/uc?export=view&id=${id}`;
       }
     }
