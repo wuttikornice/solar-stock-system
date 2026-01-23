@@ -256,15 +256,16 @@ const App = () => {
   }, [stockData, stockStatus]);
 
   const getDirectImageUrl = (url) => {
-    if (!url) return null;
-    if (url.includes('drive.google.com')) {
-      const idMatch = url.match(/\/d\/(.*?)\/|id=(.*?)(&|$)|open\?id=(.*?)(&|$)/);
+    if (!url || typeof url !== 'string') return null;
+    const cleanUrl = url.trim();
+    if (cleanUrl.includes('drive.google.com')) {
+      const idMatch = cleanUrl.match(/\/d\/(.*?)\/|id=(.*?)(&|$)|open\?id=(.*?)(&|$)/);
       if (idMatch) {
         const id = idMatch[1] || idMatch[2] || idMatch[4];
-        return `https://drive.google.com/uc?export=view&id=${id}`;
+        return `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
       }
     }
-    return url;
+    return cleanUrl;
   };
 
   const categoriesList = useMemo(() => ['All', ...new Set(products.map(p => p.Category).filter(Boolean))], [products]);
@@ -516,25 +517,39 @@ const App = () => {
                     return (
                       <React.Fragment key={idx}>
                         <tr className="tr" onClick={() => setExpandedProduct(isExpanded ? null : item['Product ID'])}>
-                          <td>
+                          <td style={{ position: 'relative' }}>
                             {displayImage ? (
-                              <img
-                                src={displayImage}
-                                alt={item.Model}
-                                className="product-thumb"
-                                onError={(e) => {
-                                  e.target.onerror = null;
-                                  e.target.style.display = 'none';
-                                  // Find the parent td and add placeholder if not already there
-                                  const parent = e.target.parentNode;
-                                  if (!parent.querySelector('.product-thumb-placeholder')) {
-                                    const placeholder = document.createElement('div');
-                                    placeholder.className = 'product-thumb-placeholder';
-                                    placeholder.innerText = '📦';
-                                    parent.appendChild(placeholder);
-                                  }
-                                }}
-                              />
+                              <div style={{ position: 'relative' }}>
+                                <img
+                                  src={displayImage}
+                                  alt={item.Model}
+                                  className="product-thumb"
+                                  onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.style.display = 'none';
+                                    const parent = e.target.parentNode;
+                                    if (!parent.querySelector('.product-thumb-placeholder')) {
+                                      const placeholder = document.createElement('div');
+                                      placeholder.className = 'product-thumb-placeholder';
+                                      placeholder.innerText = '📦';
+                                      parent.appendChild(placeholder);
+                                    }
+                                  }}
+                                />
+                                <a
+                                  href={item.Image || item.image}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    position: 'absolute', bottom: -5, right: -5,
+                                    fontSize: '0.6rem', background: 'rgba(0,0,0,0.5)',
+                                    color: 'white', padding: '2px 4px', borderRadius: '4px',
+                                    textDecoration: 'none', zIndex: 5
+                                  }}
+                                  title="Open original link"
+                                  onClick={(e) => e.stopPropagation()}
+                                >🔗</a>
+                              </div>
                             ) : (
                               <div className="product-thumb-placeholder">📦</div>
                             )}
