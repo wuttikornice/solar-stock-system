@@ -425,7 +425,7 @@ const App = () => {
           <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Admin</div>
           <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ Manage Stock</div>
         </nav>
-        <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Reconciliation: Done</div>
+        <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Reconciliation: Done<br />v1.2.1-LIVE</div>
       </aside>
 
       <main className="main-content">
