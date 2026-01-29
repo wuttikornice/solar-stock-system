@@ -468,3 +468,88 @@ td {
 .summary-item:last-child span:last-child {
   color: var(--secondary);
 }
+
+/* Alerts and Notifications */
+.alert-banner {
+  background: #fef2f2;
+  border-left: 5px solid #ef4444;
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.alert-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.alert-card {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #fee2e2;
+  transition: transform 0.2s;
+}
+
+.alert-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
+}
+
+/* Action Buttons */
+.btn-export {
+  background: #1e293b;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.btn-export:hover {
+  background: #0f172a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-export:active {
+  transform: translateY(0);
+}
+
+/* Serial Search Specifics */
+.serial-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.serial-step {
+  background: white;
+  padding: 1.25rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  position: relative;
+  transition: all 0.2s;
+}
+
+.serial-step:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.serial-step::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 15%;
+  bottom: 15%;
+  width: 4px;
+  border-radius: 4px;
+}

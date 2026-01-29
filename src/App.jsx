@@ -6,12 +6,13 @@ import {
 } from 'recharts';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbzPN-9pn3P7K-GgQ4TculH01OltA5_fZcQx-jRcr_SLLoiPXyWCGE70_k1VDMRmIobloQ/exec';
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbw_v2nU8UZeHw2FSES66RjQ18xXW3jy6lnF_4gix0LIG4t0AVWd6Z-AG2q56rWRlKLZAg/exec';
 
 const GIDS = {
   PRODUCTS: '0',
   STOCK_IN: '314735558',
-  STOCK_OUT: '1204118810'
+  STOCK_OUT: '1204118810',
+  USERS: '1357094185' // Updated to the correct GID from the user's sheet
 };
 
 const THEME = {
@@ -25,14 +26,56 @@ const THEME = {
 const App = () => {
   const [products, setProducts] = useState([]);
   const [stockStatus, setStockStatus] = useState({ in: [], out: [] });
+  const [users, setUsers] = useState([]);
+
+  // Auth State
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
+  const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('currentUser')) || null);
+  const [loginData, setLoginData] = useState({ username: '', password: '' });
+  const [authError, setAuthError] = useState('');
+  const handleExportCSV = (data, filename) => {
+    if (!data || data.length === 0) return;
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addActivityLog('Export CSV', `ดาวน์โหลดไฟล์: ${filename}`);
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState('dashboard');
   const [expandedProduct, setExpandedProduct] = useState(null);
   const [expandedTransaction, setExpandedTransaction] = useState(null);
 
-  // New State for Serial Tracking Tab
   const [serialViewMode, setSerialViewMode] = useState('all'); // 'all', 'in', 'out'
+  const [serialSearch, setSerialSearch] = useState('');
+  const [serialHistory, setSerialHistory] = useState(null);
+
+  const handleSerialSearch = () => {
+    if (!serialSearch.trim()) return;
+    const history = [];
+    stockStatus.in.forEach(item => {
+      if (item['Serial Number'] === serialSearch.trim()) {
+        history.push({ ...item, type: 'IN' });
+      }
+    });
+    stockStatus.out.forEach(item => {
+      if (item['Serial Number'] === serialSearch.trim()) {
+        history.push({ ...item, type: 'OUT' });
+      }
+    });
+    setSerialHistory(history.sort((a, b) => {
+      const da = (a.Date || a.date || '').split('/').reverse().join('-');
+      const db = (b.Date || b.date || '').split('/').reverse().join('-');
+      return new Date(da) - new Date(db);
+    }));
+  };
 
   // New State for Manage Stock Form
   const [manageMode, setManageMode] = useState('out'); // 'in' or 'out'
@@ -67,9 +110,12 @@ const App = () => {
     specification: '',
     unit: '',
     minStock: 0,
+    company: 'Simat',
     image: ''
   });
   const [isAddingProduct, setIsAddingProduct] = useState(false);
+  const [filterCompany, setFilterCompany] = useState('All');
+  const [showLowStockAlerts, setShowLowStockAlerts] = useState(false);
 
   useEffect(() => {
     const fetchAllSheets = async () => {
@@ -86,14 +132,16 @@ const App = () => {
           });
         };
 
-        const [prodData, inData, outData] = await Promise.all([
+        const [prodData, inData, outData, userData] = await Promise.all([
           fetchSheet(GIDS.PRODUCTS),
           fetchSheet(GIDS.STOCK_IN),
-          fetchSheet(GIDS.STOCK_OUT)
+          fetchSheet(GIDS.STOCK_OUT),
+          fetchSheet(GIDS.USERS).catch(() => []) // Fallback if sheet doesn't exist yet
         ]);
 
         setProducts(prodData);
         setStockStatus({ in: inData, out: outData });
+        setUsers(userData);
         setLoading(false);
       } catch (err) {
         setLoading(false);
@@ -101,6 +149,63 @@ const App = () => {
     };
     fetchAllSheets();
   }, []);
+
+  const addActivityLog = async (action, details = '') => {
+    try {
+      await fetch(GAS_API_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'log',
+          timestamp: new Date().toISOString(),
+          username: currentUser?.Username || 'guest',
+          action: action,
+          details: details
+        })
+      });
+    } catch (err) {
+      console.error('Failed to log activity:', err);
+    }
+  };
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    // Find user in the list (fetched from Google Sheets)
+    const foundUser = users.find(u =>
+      u.Username?.trim() === loginData.username.trim() &&
+      u.Password?.trim() === loginData.password.trim()
+    );
+
+    if (foundUser || (users.length === 0 && loginData.username === 'admin' && loginData.password === 'admin123')) {
+      const user = foundUser || { Name: 'Administrator', Username: 'admin', Role: 'Admin' };
+      setIsLoggedIn(true);
+      setCurrentUser(user);
+      localStorage.setItem('isLoggedIn', 'true');
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      setFormData(prev => ({ ...prev, person: user.Name }));
+      addActivityLog('Login', `เข้าสู่ระบบสำเร็จ (${user.Role})`);
+    } else {
+      setAuthError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      addActivityLog('Login Failed', `พยายามเข้าใช้งานด้วยชื่อ: ${loginData.username}`);
+    }
+  };
+
+  const handleLogout = () => {
+    addActivityLog('Logout', 'ออกจากระบบ');
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('currentUser');
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && currentUser) {
+      setFormData(prev => ({ ...prev, person: currentUser.Name || currentUser.Username }));
+    }
+  }, [isLoggedIn, currentUser]);
 
   const reconciledStock = useMemo(() => {
     const productAggregates = {};
@@ -277,7 +382,8 @@ const App = () => {
         const matchesSearch = Object.values(item).some(val => String(val).toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesCategory = filterCategory === 'All' || item.Category === filterCategory;
         const matchesBrand = filterBrand === 'All' || item.Brand === filterBrand;
-        return matchesSearch && matchesCategory && matchesBrand;
+        const matchesCompany = filterCompany === 'All' || item.Company === filterCompany;
+        return matchesSearch && matchesCategory && matchesBrand && matchesCompany;
       });
 
       if (sortConfig.key) {
@@ -314,48 +420,56 @@ const App = () => {
 
     // Process ALL In Stock entries
     stockStatus.in.forEach(item => {
-      const ref = item['Ref No'] || item['Reference No'] || '-';
-      const key = `IN-${ref}`;
+      const ref = item['Ref No.'] || item['Ref No'] || item['Reference No'] || '-';
+      const date = item.Date || item.date || '-';
+      const key = `IN-${ref}-${date}`;
       if (!groups[key]) {
         groups[key] = {
           id: key,
           ref: ref,
-          date: item.Date || item.date || '-',
+          date: date,
           type: 'IN',
           entity: item['Entity'] || '-',
-          person: item['Receiver'] || item['Person'] || '-',
+          person: item['Person'] || item['Receiver'] || '-',
           items: []
         };
       }
-      if (item['Serial Number'] && item['Serial Number'] !== 'NON-SERIAL') {
+      if (item['Serial Number']) {
+        const product = products.find(p => p['Product ID'] === item['Product ID']);
         groups[key].items.push({
           serial: item['Serial Number'],
           model: item.Model,
-          productId: item['Product ID']
+          productId: item['Product ID'],
+          category: product ? product.Category : 'Unknown',
+          qty: parseInt(item['Quantity'] || item['quantity'] || 1)
         });
       }
     });
 
     // Process ALL Stock Out entries
     stockStatus.out.forEach(item => {
-      const ref = item['Ref No'] || item['Reference No'] || '-';
-      const key = `OUT-${ref}`;
+      const ref = item['Ref No.'] || item['Ref No'] || item['Reference No'] || '-';
+      const date = item.Date || item.date || '-';
+      const key = `OUT-${ref}-${date}`;
       if (!groups[key]) {
         groups[key] = {
           id: key,
           ref: ref,
-          date: item.Date || item.date || '-',
+          date: date,
           type: 'OUT',
-          entity: item['Project Name'] || item['Project'] || '-',
-          person: item['Withdrawer'] || item['Person'] || '-',
+          entity: item['Project Name '] || item['Project Name'] || item['Project'] || '-',
+          person: item['Person'] || item['Withdrawer'] || '-',
           items: []
         };
       }
-      if (item['Serial Number'] && item['Serial Number'] !== 'NON-SERIAL') {
+      if (item['Serial Number']) {
+        const product = products.find(p => p['Product ID'] === item['Product ID']);
         groups[key].items.push({
           serial: item['Serial Number'],
           model: item.Model,
-          productId: item['Product ID']
+          productId: item['Product ID'],
+          category: product ? product.Category : 'Unknown',
+          qty: parseInt(item['Quantity'] || item['quantity'] || 1)
         });
       }
     });
@@ -399,51 +513,169 @@ const App = () => {
   const getStockStatus = (current, min) => {
     const cur = parseFloat(current || 0);
     const m = parseFloat(min || 0);
-    if (cur === 0) return { label: 'Out of Stock', class: 'stock-empty' };
-    if (cur <= m) return { label: 'Low Stock', class: 'stock-low' };
-    return { label: 'In Stock', class: 'stock-healthy' };
+    if (cur === 0) return { label: 'สินค้าหมด', class: 'stock-empty' };
+    if (cur <= m) return { label: 'สต๊อกต่ำ', class: 'stock-low' };
+    return { label: 'ปกติ', class: 'stock-healthy' };
   };
 
   if (loading) return (
     <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f4f7f6' }}>
-      <div style={{ textAlign: 'center' }}>
-        <h2 style={{ color: THEME.primary, marginBottom: '1rem' }}>Synchronizing Warehouse...</h2>
-        <p>Calculating Serial Number Reconciliation</p>
-      </div>
     </div>
   );
+
+  if (!isLoggedIn) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)',
+        fontFamily: 'Inter, sans-serif'
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '400px',
+          background: 'white',
+          padding: '2.5rem',
+          borderRadius: '16px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          animation: 'fadeIn 0.5s ease-out'
+        }}>
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>☀️</div>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: THEME.primary, margin: 0 }}>Solar Stock System</h1>
+            <p style={{ color: '#64748b', marginTop: '0.5rem' }}>กรุณาเข้าสู่ระบบเพื่อดำเนินการ</p>
+          </div>
+
+          <form onSubmit={handleLogin}>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>ชื่อผู้ใช้งาน</label>
+              <input
+                type="text"
+                required
+                style={{
+                  width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0',
+                  outline: 'none', transition: 'border-color 0.2s'
+                }}
+                placeholder="Username"
+                value={loginData.username}
+                onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
+              />
+            </div>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>รหัสผ่าน</label>
+              <input
+                type="password"
+                required
+                style={{
+                  width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0',
+                  outline: 'none', transition: 'border-color 0.2s'
+                }}
+                placeholder="••••••••"
+                value={loginData.password}
+                onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+              />
+            </div>
+
+            {authError && (
+              <div style={{
+                padding: '0.75rem', borderRadius: '8px', background: '#fef2f2', color: '#991b1b',
+                fontSize: '0.875rem', marginBottom: '1.5rem', textAlign: 'center', border: '1px solid #fee2e2'
+              }}>
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              style={{
+                width: '100%', padding: '0.75rem', background: THEME.primary, color: 'white',
+                border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '1rem',
+                cursor: 'pointer', transition: 'opacity 0.2s'
+              }}
+              onMouseOver={(e) => e.target.style.opacity = '0.9'}
+              onMouseOut={(e) => e.target.style.opacity = '1'}
+            >
+              เข้าสู่ระบบ
+            </button>
+          </form>
+
+          <div style={{ marginTop: '2rem', textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
+            Exclusive Solution Designed by Wuttikorn.k
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
       <aside className="sidebar">
         <h2><span style={{ color: THEME.secondary }}>☀️</span> CMI Solar</h2>
         <nav style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>🏠 Stock Overview</div>
-          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Operations</div>
-          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 Serial Tracking</div>
-          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 Reports</div>
-          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => setCurrentView('product_management')}>📦 Product Management</div>
-          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>Admin</div>
-          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ Manage Stock</div>
+          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>🏠 ภาพรวมคลังสินค้า</div>
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>การดำเนินการ</div>
+          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 ติดตามซีเรียล</div>
+          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 รายงานสรุป</div>
+          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => setCurrentView('product_management')}>📦 ข้อมูลสินค้า</div>
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>แอดมิน</div>
+          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ ทำรายการสต๊อก</div>
         </nav>
-        <div style={{ marginTop: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Reconciliation: Done<br />v1.2.1-LIVE</div>
+        <div style={{
+          marginTop: 'auto',
+          padding: '1rem',
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: '12px',
+          border: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%', background: THEME.secondary,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.8rem'
+            }}>
+              {(currentUser?.Name || 'U')[0]}
+            </div>
+            <div style={{ overflow: 'hidden' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {currentUser?.Name}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>
+                {currentUser?.Role || 'Staff'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            style={{
+              width: '100%', padding: '0.4rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '6px', color: 'white', fontSize: '0.7rem', cursor: 'pointer'
+            }}
+          >
+            ออกจากระบบ
+          </button>
+        </div>
+        <div style={{ marginTop: '1rem', fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>
+          สถานะ: เชื่อมต่อแล้ว • v1.3.1<br />
+          Exclusive Solution Designed by Wuttikorn.k
+        </div>
       </aside>
 
       <main className="main-content">
         <header className="header" style={{ marginBottom: '2rem' }}>
           <div>
             <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: THEME.primary }}>
-              {currentView === 'dashboard' && 'Stock Control Center'}
-              {currentView === 'product_management' && 'Product Master Data'}
-              {currentView === 'serial_tracking' && 'Serial Number Reconciliation'}
-              {currentView === 'reports' && 'Strategic Analysis'}
-              {currentView === 'manage_stock' && 'Stock Transaction'}
+              {currentView === 'dashboard' && 'ศูนย์ควบคุมสต๊อกสินค้า'}
+              {currentView === 'product_management' && 'ฐานข้อมูลสินค้า'}
+              {currentView === 'serial_tracking' && 'ประวัติตรวจสอบหมายเลขซีเรียล'}
+              {currentView === 'reports' && 'รายงานวิเคราะห์เชิงกลยุทธ์'}
+              {currentView === 'manage_stock' && 'บันทึกรายการรับ-จ่ายสินค้า'}
             </h1>
             <p style={{ color: '#666' }}>
-              {currentView === 'dashboard' && 'Click product to view individual serial status'}
-              {currentView === 'serial_tracking' && 'Track any item from entry to project site'}
-              {currentView === 'reports' && 'Warehouse movement and category distribution'}
-              {currentView === 'manage_stock' && 'Record stock in/out for serial or non-serial items'}
+              {currentView === 'dashboard' && 'คลิกชื่อสินค้าเพื่อดูรายละเอียดหมายเลขซีเรียล'}
+              {currentView === 'serial_tracking' && 'ติดตามสินค้าตั้งแต่เริ่มเข้าคลังจนถึงการติดตั้งที่หน้างาน'}
+              {currentView === 'reports' && 'สรุปการเคลื่อนย้ายคลังสินค้าและสัดส่วนตามประเภทโครงการ'}
+              {currentView === 'manage_stock' && 'บันทึกการเข้า/ออกของสินค้าทั้งที่มีและไม่มีซีเรียล'}
             </p>
           </div>
           <input type="text" placeholder="Search..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -453,31 +685,84 @@ const App = () => {
           <>
             <div className="summary-inline">
               <div className="summary-item">
-                <span>Total Items</span>
-                <span>{reportData.totalUnits}</span>
+                <span>จำนวนสินค้าทั้งหมด</span>
+                <span>{reportData.totalUnits.toLocaleString()}</span>
               </div>
               <div className="summary-item">
-                <span>Categories</span>
+                <span>หมวดหมู่ทั้งหมด</span>
                 <span>{categoriesList.length - 1}</span>
               </div>
               <div className="summary-item">
-                <span>Low Stock</span>
-                <span style={{ color: THEME.secondary }}>{reportData.lowStockItems}</span>
+                <span>สินค้าสต๊อกต่ำ</span>
+                <span style={{ color: reportData.lowStockItems > 0 ? THEME.danger : THEME.secondary }}>
+                  {reportData.lowStockItems}
+                </span>
               </div>
             </div>
 
+            {reportData.lowStockItems > 0 && (
+              <div className="alert-banner">
+                <div
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                  onClick={() => setShowLowStockAlerts(!showLowStockAlerts)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+                    <h3 style={{ margin: 0, color: '#991b1b' }}>สินค้าที่ต้องสั่งซื้อเพิ่ม ({reportData.lowStockItems} รายการ)</h3>
+                  </div>
+                  <button className="badge" style={{ border: 'none', background: '#fee2e2', color: '#991b1b', cursor: 'pointer' }}>
+                    {showLowStockAlerts ? '🔼 ซ่อนรายละเอียด' : '🔽 ดูรายการทั้งหมด'}
+                  </button>
+                </div>
+                {showLowStockAlerts && (
+                  <div className="alert-grid" style={{ marginTop: '1.5rem' }}>
+                    {stockData.filter(p => p.CalculatedBalance <= parseFloat(p['Min Stock'] || 0)).map((p, i) => (
+                      <div key={i} className="alert-card">
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{p.Model}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#666' }}>เหลือ {p.CalculatedBalance} {p.Unit || 'ชิ้น'} (Min: {p['Min Stock']})</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="filters-bar">
               <div className="filter-group">
-                <label>Category</label>
+                <label>หมวดหมู่สินค้า</label>
                 <select className="filter-select" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-                  {categoriesList.map(c => <option key={c} value={c}>{c}</option>)}
+                  {categoriesList.map(c => <option key={c} value={c}>{c === 'All' ? 'ทั้งหมด' : c}</option>)}
                 </select>
               </div>
               <div className="filter-group">
-                <label>Brand</label>
+                <label>แบรนด์/ยี่ห้อ</label>
                 <select className="filter-select" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
-                  {brandsList.map(b => <option key={b} value={b}>{b}</option>)}
+                  {brandsList.map(b => <option key={b} value={b}>{b === 'All' ? 'ทั้งหมด' : b}</option>)}
                 </select>
+              </div>
+              <div className="filter-group">
+                <label>เจ้าของสินค้า (Company)</label>
+                <select className="filter-select" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)}>
+                  <option value="All">ทั้งหมด</option>
+                  <option value="Simat">Simat</option>
+                  <option value="Ultimo">Ultimo</option>
+                </select>
+              </div>
+              <div style={{ marginLeft: 'auto' }}>
+                <button
+                  className="btn-export"
+                  onClick={() => handleExportCSV(stockData.map(p => ({
+                    'Product ID': p['Product ID'],
+                    'Category': p.Category,
+                    'Brand': p.Brand,
+                    'Model': p.Model,
+                    'Balance': p.CalculatedBalance,
+                    'Min Stock': p['Min Stock'],
+                    'Unit': p.Unit
+                  })), 'inventory_report')}
+                >
+                  📥 Export Inventory
+                </button>
               </div>
             </div>
 
@@ -485,28 +770,29 @@ const App = () => {
               <table>
                 <thead>
                   <tr>
-                    <th>Image</th>
+                    <th>รูปสินค้า</th>
                     <th onClick={() => setSortConfig({ key: 'Product ID', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                       <div className="sort-header">
-                        ID {sortConfig.key === 'Product ID' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        รหัส {sortConfig.key === 'Product ID' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </div>
                     </th>
                     <th onClick={() => setSortConfig({ key: 'Category', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                       <div className="sort-header">
-                        Category {sortConfig.key === 'Category' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        หมวดหมู่ {sortConfig.key === 'Category' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </div>
                     </th>
                     <th onClick={() => setSortConfig({ key: 'Model', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                       <div className="sort-header">
-                        Model {sortConfig.key === 'Model' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        รุ่นสินค้า {sortConfig.key === 'Model' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </div>
                     </th>
                     <th onClick={() => setSortConfig({ key: 'CalculatedBalance', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                       <div className="sort-header">
-                        Balance {sortConfig.key === 'CalculatedBalance' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                        คงเหลือ {sortConfig.key === 'CalculatedBalance' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                       </div>
                     </th>
-                    <th>Status</th>
+                    <th>เจ้าของ</th>
+                    <th>สถานะ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -558,6 +844,11 @@ const App = () => {
                           <td>{item.Category}</td>
                           <td><strong>{item.Model}</strong></td>
                           <td style={{ fontWeight: 800 }}>{item.CalculatedBalance}</td>
+                          <td>
+                            <span className={`badge ${item.Company === 'Ultimo' ? 'badge-orange' : 'badge-blue'}`} style={{ fontSize: '0.7rem' }}>
+                              {item.Company || 'Simat'}
+                            </span>
+                          </td>
                           <td>
                             <div className={`stock-badge ${status.class}`}>
                               <div className="pulsate"></div>
@@ -651,7 +942,7 @@ const App = () => {
                   className={`badge ${!isAddingProduct ? 'badge-blue' : ''}`}
                   style={{ cursor: 'pointer', border: 'none', padding: '0.6rem 1.2rem' }}
                   onClick={() => setIsAddingProduct(false)}
-                >📦 All Products</button>
+                >📦 รายการสินค้าทั้งหมด</button>
                 <button
                   className={`badge ${isAddingProduct ? 'badge-orange' : ''}`}
                   style={{ cursor: 'pointer', border: 'none', padding: '0.6rem 1.2rem' }}
@@ -659,29 +950,29 @@ const App = () => {
                     setIsAddingProduct(true);
                     setFormStatus({ type: '', message: '' });
                   }}
-                >➕ Add New Product</button>
+                >➕ เพิ่มสินค้าใหม่</button>
               </div>
             </div>
 
             {isAddingProduct ? (
               <div className="table-container" style={{ padding: '2rem' }}>
-                <h3 style={{ marginBottom: '1.5rem', color: THEME.primary }}>Register New Solar Equipment</h3>
+                <h3 style={{ marginBottom: '1.5rem', color: THEME.primary }}>ลงทะเบียนอุปกรณ์ใหม่</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Product ID (Unique SKU)</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>รหัสสินค้า (Unique SKU)</label>
                     <input
                       type="text"
-                      placeholder="e.g., INV-001"
+                      placeholder="เช่น INV-001"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
                       value={productFormData.id}
                       onChange={(e) => setProductFormData({ ...productFormData, id: e.target.value.toUpperCase() })}
                     />
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Category</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>หมวดหมู่</label>
                     <input
                       list="categories"
-                      placeholder="e.g., Inverter"
+                      placeholder="เช่น Inverter"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
                       value={productFormData.category}
                       onChange={(e) => setProductFormData({ ...productFormData, category: e.target.value })}
@@ -691,10 +982,10 @@ const App = () => {
                     </datalist>
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Brand</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>ยี่ห้อ</label>
                     <input
                       list="brands"
-                      placeholder="e.g., Hoymiles"
+                      placeholder="เช่น Hoymiles"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
                       value={productFormData.brand}
                       onChange={(e) => setProductFormData({ ...productFormData, brand: e.target.value })}
@@ -704,36 +995,36 @@ const App = () => {
                     </datalist>
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Model Name</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>รุ่นสินค้า (Model Name)</label>
                     <input
                       type="text"
-                      placeholder="e.g., HMS-2000-4T"
+                      placeholder="เช่น HMS-2000-4T"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
                       value={productFormData.model}
                       onChange={(e) => setProductFormData({ ...productFormData, model: e.target.value })}
                     />
                   </div>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Specification</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>รายละเอียดทางเทคนิค (Specification)</label>
                     <textarea
-                      placeholder="Technical specs..."
+                      placeholder="กรอกรายละเอียด..."
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd', minHeight: '80px' }}
                       value={productFormData.specification}
                       onChange={(e) => setProductFormData({ ...productFormData, specification: e.target.value })}
                     />
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Unit</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>หน่วยนับ</label>
                     <input
                       type="text"
-                      placeholder="e.g., Pcs, Box, Meter"
+                      placeholder="ชิ้น, เครื่อง, ม้วน"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
                       value={productFormData.unit}
                       onChange={(e) => setProductFormData({ ...productFormData, unit: e.target.value })}
                     />
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Min Stock Threshold</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>จุดสั่งซื้อขั้นต่ำ (Min Stock)</label>
                     <input
                       type="number"
                       style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
@@ -741,8 +1032,19 @@ const App = () => {
                       onChange={(e) => setProductFormData({ ...productFormData, minStock: e.target.value })}
                     />
                   </div>
+                  <div className="form-group">
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>บริษัทเจ้าของ (Owner)</label>
+                    <select
+                      style={{ width: '100%', padding: '0.8rem', borderRadius: '8px', border: '1px solid #ddd' }}
+                      value={productFormData.company}
+                      onChange={(e) => setProductFormData({ ...productFormData, company: e.target.value })}
+                    >
+                      <option value="Simat">Simat</option>
+                      <option value="Ultimo">Ultimo</option>
+                    </select>
+                  </div>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Image URL (Google Drive/Public)</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>ลิงก์รูปภาพ (Google Drive/Public)</label>
                     <input
                       type="text"
                       placeholder="https://..."
@@ -787,9 +1089,9 @@ const App = () => {
                       }
                     }}
                   >
-                    {formLoading ? 'Synchronizing...' : 'Save Product Master'}
+                    {formLoading ? 'กำลังบันทึก...' : 'บันทึกข้อมูลสินค้าหลัก'}
                   </button>
-                  <button onClick={() => setIsAddingProduct(false)} style={{ padding: '1rem 2rem', background: '#eee', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={() => setIsAddingProduct(false)} style={{ padding: '1rem 2rem', background: '#eee', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>ยกเลิก</button>
                 </div>
                 {formStatus.message && (
                   <div style={{
@@ -806,29 +1108,43 @@ const App = () => {
               <div className="table-container">
                 <table>
                   <thead>
-                    <tr><th>Image</th><th>ID</th><th>Category</th><th>Brand</th><th>Model</th><th>Min</th><th>Unit</th></tr>
+                    <tr><th>รูปภาพ</th><th>รหัสสินค้า</th><th>หมวดหมู่</th><th>ยี่ห้อ</th><th>รุ่นสินค้า</th><th>สต๊อกต่ำ</th><th>หน่วย</th></tr>
                   </thead>
                   <tbody>
                     {filteredItems.map((item, idx) => (
                       <tr key={idx} className="tr">
-                        <td>
+                        <td style={{ position: 'relative' }}>
                           {item.Image || item.image ? (
-                            <img
-                              src={getDirectImageUrl(item.Image || item.image)}
-                              className="product-thumb"
-                              alt=""
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = 'none';
-                                const parent = e.target.parentNode;
-                                if (!parent.querySelector('.product-thumb-placeholder')) {
-                                  const placeholder = document.createElement('div');
-                                  placeholder.className = 'product-thumb-placeholder';
-                                  placeholder.innerText = '📦';
-                                  parent.appendChild(placeholder);
-                                }
-                              }}
-                            />
+                            <div style={{ position: 'relative', width: 'fit-content' }}>
+                              <img
+                                src={getDirectImageUrl(item.Image || item.image)}
+                                className="product-thumb"
+                                alt=""
+                                onError={(e) => {
+                                  e.target.onerror = null;
+                                  e.target.style.display = 'none';
+                                  const parent = e.target.parentNode;
+                                  if (!parent.querySelector('.product-thumb-placeholder')) {
+                                    const placeholder = document.createElement('div');
+                                    placeholder.className = 'product-thumb-placeholder';
+                                    placeholder.innerText = '📦';
+                                    parent.appendChild(placeholder);
+                                  }
+                                }}
+                              />
+                              <a
+                                href={item.Image || item.image}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  position: 'absolute', bottom: -5, right: -5,
+                                  fontSize: '0.6rem', background: 'rgba(0,0,0,0.5)',
+                                  color: 'white', padding: '2px 4px', borderRadius: '4px',
+                                  textDecoration: 'none', zIndex: 5
+                                }}
+                                title="Open original link"
+                              >🔗</a>
+                            </div>
                           ) : (
                             <div className="product-thumb-placeholder">📦</div>
                           )}
@@ -855,31 +1171,78 @@ const App = () => {
                 <button
                   className={`badge ${serialViewMode === 'all' ? 'badge-blue' : ''}`}
                   onClick={() => setSerialViewMode('all')}
-                >All History</button>
+                >ประวัติทั้งหมด</button>
                 <button
                   className={`badge ${serialViewMode === 'in' ? 'badge-green' : ''}`}
                   onClick={() => setSerialViewMode('in')}
-                >In Stock (DO)</button>
+                >รายการรับเข้า (DO)</button>
                 <button
                   className={`badge ${serialViewMode === 'out' ? 'badge-orange' : ''}`}
                   onClick={() => setSerialViewMode('out')}
-                >Deployed (Project)</button>
+                >รายการเบิกออก (Project)</button>
               </div>
               <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
                 Found {groupedTransactions.length} transactions
               </div>
             </div>
 
+            <div className="chart-card" style={{ marginBottom: '2rem', background: 'linear-gradient(to right, #f8fafc, #ffffff)' }}>
+              <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>🔍 ค้นหาประวัติรายซีเรียล (Full Lifecycle)</h3>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <input
+                  type="text"
+                  placeholder="ป้อนหมายเลขซีเรียล..."
+                  className="search-input"
+                  style={{ flex: 1, margin: 0 }}
+                  value={serialSearch}
+                  onChange={(e) => setSerialSearch(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSerialSearch()}
+                />
+                <button className="badge badge-blue" style={{ border: 'none', cursor: 'pointer', padding: '0 1.5rem' }} onClick={handleSerialSearch}>
+                  ตรวจสอบประวัติ
+                </button>
+              </div>
+
+              {serialHistory && (
+                <div style={{ marginTop: '1.5rem', borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h4 style={{ margin: 0 }}>ผลการค้นหา: <span style={{ color: THEME.primary }}>{serialSearch}</span></h4>
+                    <button className="badge" style={{ background: '#eee', color: '#666', border: 'none' }} onClick={() => setSerialHistory(null)}>ล้างผลลัพธ์</button>
+                  </div>
+                  {serialHistory.length === 0 ? (
+                    <p style={{ color: '#666', textAlign: 'center', padding: '1rem' }}>ไม่พบข้อมูลประวัติของซีเรียลนี้</p>
+                  ) : (
+                    <div className="serial-search-results">
+                      {serialHistory.map((h, i) => (
+                        <div key={i} className="serial-step" style={{ borderLeft: `4px solid ${h.type === 'IN' ? THEME.success : THEME.secondary}` }}>
+                          <div style={{ fontWeight: 700 }}>{h.type === 'IN' ? '📥 รับเข้าคลัง' : '📤 เบิกออกนอกคลัง'}</div>
+                          <div style={{ fontSize: '0.8rem', color: '#666' }}>{h.Date || h.date}</div>
+                          <div style={{ marginTop: '0.25rem' }}>
+                            {h.type === 'IN' ? (
+                              <span>รับจาก: <strong>{h.Entity || '-'}</strong> (DO: {h['Ref No.'] || h['Reference No'] || '-'})</span>
+                            ) : (
+                              <span>ไปยังโครงการ: <strong>{h['Project Name '] || h.Project || '-'}</strong> (Ref: {h['Ref No.'] || h['Reference No'] || '-'})</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>เจ้าหน้าที่: {h.Person || h.Receiver || h.Withdrawer || '-'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="chart-card" style={{ padding: 0, overflow: 'hidden' }}>
               <table className="inventory-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Ref No / DO</th>
-                    <th>Type</th>
-                    <th>Entity / Project</th>
-                    <th>Items</th>
-                    <th>Action</th>
+                    <th>วันที่</th>
+                    <th>เลขที่อ้างอิง / DO</th>
+                    <th>ประเภท</th>
+                    <th>ชื่อโครงการ / ลูกค้า</th>
+                    <th>จำนวนรายการ</th>
+                    <th>การดำเนินการ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -907,7 +1270,9 @@ const App = () => {
                           <td>{group.entity}</td>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <span style={{ fontWeight: 700 }}>{group.items.length}</span>
+                              <span style={{ fontWeight: 700 }}>
+                                {group.items.reduce((sum, i) => sum + i.qty, 0)}
+                              </span>
                               <span style={{ fontSize: '0.75rem', color: '#64748b' }}>units</span>
                             </div>
                           </td>
@@ -920,20 +1285,52 @@ const App = () => {
                         {expandedTransaction === group.id && (
                           <tr>
                             <td colSpan="6" style={{ background: '#f8fafc', padding: '1.5rem' }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-                                {group.items.map((item, idx) => (
-                                  <div key={idx} className="stat-card" style={{ padding: '0.75rem', border: '1px solid #e2e8f0', background: 'white' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                                      <div>
-                                        <div style={{ fontSize: '0.7rem', color: THEME.primary, fontWeight: 700 }}>{item.productId}</div>
-                                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{item.serial}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.model}</div>
-                                      </div>
-                                      <div style={{ fontSize: '0.8rem', opacity: 0.5 }}>#{idx + 1}</div>
+                              {(() => {
+                                const grouped = {};
+                                group.items.forEach(it => {
+                                  const cat = it.category || 'Other';
+                                  if (!grouped[cat]) grouped[cat] = [];
+                                  grouped[cat].push(it);
+                                });
+                                return Object.entries(grouped).map(([category, items], gIdx) => (
+                                  <div key={category} style={{ marginBottom: gIdx === Object.keys(grouped).length - 1 ? 0 : '2rem' }}>
+                                    <div style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.6rem',
+                                      marginBottom: '1rem',
+                                      padding: '0.4rem 1rem',
+                                      background: '#f1f5f9',
+                                      borderLeft: `4px solid ${THEME.primary}`,
+                                      borderRadius: '4px',
+                                      width: 'fit-content'
+                                    }}>
+                                      <span style={{ fontWeight: 800, color: THEME.primary, fontSize: '0.9rem' }}>{category}</span>
+                                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                        ({items.reduce((sum, i) => sum + i.qty, 0)} {items.reduce((sum, i) => sum + i.qty, 0) > 1 ? 'items' : 'item'})
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.8rem' }}>
+                                      {items.map((item, idx) => (
+                                        <div key={idx} className="stat-card" style={{ padding: '0.6rem 0.8rem', border: '1px solid #e2e8f0', background: 'white', borderRadius: '8px' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                            <div>
+                                              <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>{item.productId}</div>
+                                              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b', margin: '0.2rem 0' }}>
+                                                {item.serial === 'NON-SERIAL' ? <span style={{ color: THEME.secondary }}>[Bulk/Non-Serial]</span> : item.serial}
+                                              </div>
+                                              <div style={{ fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
+                                                {item.model} {item.serial === 'NON-SERIAL' && `(Qty: ${item.qty})`}
+                                              </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontWeight: 600 }}>#{idx + 1}</div>
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
-                                ))}
-                              </div>
+                                ));
+                              })()}
                             </td>
                           </tr>
                         )}
@@ -952,21 +1349,21 @@ const App = () => {
               {/* Row 1: Strategic Forecasts (Simple Text Cards) */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
                 <div className="stat-card" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)', color: 'white' }}>
-                  <h3 style={{ color: '#94a3b8' }}>Top Project Type</h3>
+                  <h3 style={{ color: '#94a3b8' }}>เบิกจ่ายสูงสุดตามประเภท</h3>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-                    {reportData.projectDistribution[0]?.name || 'N/A'}
+                    {reportData.projectDistribution[0]?.name || 'ไม่มีข้อมูล'}
                   </div>
                   <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '0.5rem' }}>
-                    Using {((reportData.projectDistribution[0]?.value / reportData.projectDistribution.reduce((a, b) => a + b.value, 0)) * 100 || 0).toFixed(1)}% of outgoing stock
+                    สัดส่วน {((reportData.projectDistribution[0]?.value / reportData.projectDistribution.reduce((a, b) => a + b.value, 0)) * 100 || 0).toFixed(1)}% ของรายการเบิกจ่ายทั้งหมด
                   </div>
                 </div>
                 <div className="stat-card" style={{ background: 'linear-gradient(135deg, #047857 0%, #059669 100%)', color: 'white' }}>
-                  <h3 style={{ color: '#a7f3d0' }}>Best Moving Item</h3>
+                  <h3 style={{ color: '#a7f3d0' }}>สินค้าเคลื่อนไหวดีที่สุด</h3>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {reportData.topDeployedItems[0]?.name || 'N/A'}
+                    {reportData.topDeployedItems[0]?.name || 'ไม่มีข้อมูล'}
                   </div>
                   <div style={{ fontSize: '0.8rem', color: '#ecfdf5', marginTop: '0.5rem' }}>
-                    {reportData.topDeployedItems[0]?.value || 0} units deployed
+                    เบิกจ่ายไปแล้ว {reportData.topDeployedItems[0]?.value || 0} หน่วย
                   </div>
                 </div>
               </div>
@@ -974,7 +1371,7 @@ const App = () => {
               {/* Row 2: Project & Consumption Charts */}
               <div className="report-grid">
                 <div className="chart-card">
-                  <h3 style={{ marginBottom: '1.5rem' }}>Stock Distribution by Project Type</h3>
+                  <h3 style={{ marginBottom: '1.5rem' }}>สัดส่วนสินค้าแยกตามประเภทโครงการ</h3>
                   <div style={{ height: 300 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
@@ -1000,7 +1397,7 @@ const App = () => {
                 </div>
 
                 <div className="chart-card">
-                  <h3 style={{ marginBottom: '1.5rem' }}>Top 5 Deployed Items</h3>
+                  <h3 style={{ marginBottom: '1.5rem' }}>สินค้าเบิกจ่ายสูงสุด 5 อันดับแรก</h3>
                   <div style={{ height: 300 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={reportData.topDeployedItems} layout="vertical" margin={{ left: 60 }}>
@@ -1008,7 +1405,7 @@ const App = () => {
                         <XAxis type="number" />
                         <YAxis dataKey="name" type="category" width={100} style={{ fontSize: '0.7rem' }} />
                         <Tooltip />
-                        <Bar dataKey="value" name="Units" fill={THEME.secondary} radius={[0, 4, 4, 0]} />
+                        <Bar dataKey="value" name="จำนวน (หน่วย)" fill={THEME.secondary} radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1018,8 +1415,8 @@ const App = () => {
               {/* Row 3: Operational Trends */}
               <div className="chart-card" style={{ marginTop: '2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h3>Operational Trend (Monthly)</h3>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>Last 6 Months</div>
+                  <h3>แนวโน้มการดำเนินงาน (รายเดือน)</h3>
+                  <div style={{ fontSize: '0.8rem', color: '#666' }}>ย้อนหลัง 6 เดือน</div>
                 </div>
                 <div style={{ height: 300 }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -1028,8 +1425,8 @@ const App = () => {
                       <XAxis dataKey="month" />
                       <YAxis />
                       <Tooltip />
-                      <Area type="monotone" dataKey="in" name="Stock In" stroke={THEME.success} fill={THEME.success} fillOpacity={0.1} />
-                      <Area type="monotone" dataKey="out" name="Stock Out" stroke={THEME.danger} fill={THEME.danger} fillOpacity={0.1} />
+                      <Area type="monotone" dataKey="in" name="รับเข้า" stroke={THEME.success} fill={THEME.success} fillOpacity={0.1} />
+                      <Area type="monotone" dataKey="out" name="เบิกออก" stroke={THEME.danger} fill={THEME.danger} fillOpacity={0.1} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -1038,16 +1435,16 @@ const App = () => {
               {/* Row 4: Consumable Insights */}
               {reportData.nonSerialStats.length > 0 && (
                 <div style={{ marginTop: '2rem' }}>
-                  <h3 style={{ marginBottom: '1rem', color: THEME.primary }}>⚡ Consumable (Non-Serial) Insights</h3>
+                  <h3 style={{ marginBottom: '1rem', color: THEME.primary }}>⚡ เจาะลึกสินค้าสิ้นเปลือง (ไม่มีซีเรียล)</h3>
                   <div className="table-container">
                     <table>
                       <thead>
                         <tr>
-                          <th>Item Model</th>
-                          <th>Current Stock</th>
-                          <th>Total Out</th>
-                          <th>Est. Monthly Burn Rate</th>
-                          <th>Status</th>
+                          <th>รุ่นสินค้า</th>
+                          <th>สต๊อกคงเหลือ</th>
+                          <th>เบิกจ่ายสะสม</th>
+                          <th>อัตราการใช้รายเดือน</th>
+                          <th>สถานะ</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1056,10 +1453,10 @@ const App = () => {
                             <td style={{ fontWeight: 600 }}>{item.model}</td>
                             <td>{item.balance}</td>
                             <td>{item.totalOut}</td>
-                            <td>{item.burnRate} / month</td>
+                            <td>{item.burnRate} / เดือน</td>
                             <td>
                               <span className={`badge ${item.status === 'Critical' ? 'badge-orange' : 'badge-green'}`}>
-                                {item.status}
+                                {item.status === 'Critical' ? 'วิกฤต' : 'ปกติ'}
                               </span>
                             </td>
                           </tr>
@@ -1081,30 +1478,30 @@ const App = () => {
                   className={`badge ${manageMode === 'out' ? 'badge-orange' : ''}`}
                   style={{ flex: 1, padding: '1rem', cursor: 'pointer', border: '1px solid #ddd', borderRadius: '8px' }}
                   onClick={() => setManageMode('out')}
-                >📤 Stock Out (EPC / PPA / Sales)</button>
+                >📤 จ่ายออกสินค้า (โครงการ / ขาย)</button>
                 <button
                   className={`badge ${manageMode === 'in' ? 'badge-green' : ''}`}
                   style={{ flex: 1, padding: '1rem', cursor: 'pointer', border: '1px solid #ddd', borderRadius: '8px' }}
                   onClick={() => setManageMode('in')}
-                >📥 Stock In (New Purchase / RMA)</button>
+                >📥 รับเข้าสินค้า (ซื้อใหม่ / เคลม)</button>
               </div>
 
               <div className="chart-card" style={{ padding: '2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                   <h2 style={{ color: THEME.primary, margin: 0 }}>
-                    {manageMode === 'out' ? 'Transaction: Stock Out' : 'Transaction: Stock In'}
+                    {manageMode === 'out' ? 'บันทึกรายการ: เบิกจ่ายออก' : 'บันทึกรายการ: รับเข้าสต๊อก'}
                   </h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8f9fa', padding: '0.4rem 0.8rem', borderRadius: '20px', border: '1px solid #dee2e6' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Options:</span>
-                    <button className={`badge ${!bulkMode && !noSerial ? 'badge-blue' : ''}`} onClick={() => { setBulkMode(false); setNoSerial(false); }} style={{ border: 'none', cursor: 'pointer' }}>Single</button>
-                    <button className={`badge ${bulkMode ? 'badge-orange' : ''}`} onClick={() => { setBulkMode(true); setNoSerial(false); }} style={{ border: 'none', cursor: 'pointer' }}>Bulk</button>
-                    <button className={`badge ${noSerial ? 'badge-green' : ''}`} onClick={() => { setNoSerial(true); setBulkMode(false); }} style={{ border: 'none', cursor: 'pointer' }}>No Serial</button>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>โหมด:</span>
+                    <button className={`badge ${!bulkMode && !noSerial ? 'badge-blue' : ''}`} onClick={() => { setBulkMode(false); setNoSerial(false); }} style={{ border: 'none', cursor: 'pointer' }}>รายชิ้น</button>
+                    <button className={`badge ${bulkMode ? 'badge-orange' : ''}`} onClick={() => { setBulkMode(true); setNoSerial(false); }} style={{ border: 'none', cursor: 'pointer' }}>หลายชิ้น</button>
+                    <button className={`badge ${noSerial ? 'badge-green' : ''}`} onClick={() => { setNoSerial(true); setBulkMode(false); }} style={{ border: 'none', cursor: 'pointer' }}>ไม่มีซีเรียล</button>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Date</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>วันที่</label>
                     <input
                       type="date"
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
@@ -1113,13 +1510,13 @@ const App = () => {
                     />
                   </div>
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Product</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>สินค้า</label>
                     <select
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                       value={formData.productId}
                       onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
                     >
-                      <option value="">Select Product...</option>
+                      <option value="">เลือกสินค้า...</option>
                       {products.map(p => (
                         <option key={p['Product ID']} value={p['Product ID']}>{p.Model} ({p['Product ID']})</option>
                       ))}
@@ -1163,26 +1560,26 @@ const App = () => {
 
                   <div className="form-group">
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-                      {manageMode === 'in' ? 'Receiver Name' : 'Withdrawer Name'}
+                      {manageMode === 'in' ? 'ชื่อผู้รับสินค้า' : 'ชื่อผู้เบิกสินค้า'}
                     </label>
                     <input
                       type="text"
-                      placeholder="Name..."
-                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
+                      placeholder="ระบุชื่อ..."
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd', background: '#f8fafc', color: '#64748b' }}
                       value={formData.person}
-                      onChange={(e) => setFormData({ ...formData, person: e.target.value })}
+                      readOnly
                     />
                   </div>
 
                   <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Entity (Company)</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>หน่วยงาน (บริษัทที่รับ/จ่าย)</label>
                     <select
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                       value={formData.entity}
                       onChange={(e) => setFormData({ ...formData, entity: e.target.value })}
                     >
-                      <option value="">Select Company...</option>
-                      <option value="Simat">Simat Technology (HQ)</option>
+                      <option value="">เลือกหน่วยงาน...</option>
+                      <option value="Simat">Simat Technology (สำนักงานใหญ่)</option>
                       <option value="NPE">NPE (PPA)</option>
                       <option value="Ultimo Control">Ultimo Control (EPC)</option>
                     </select>
@@ -1191,25 +1588,25 @@ const App = () => {
                   {manageMode === 'out' && (
                     <React.Fragment>
                       <div className="form-group">
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Type</label>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>ประเภทโครงการ</label>
                         <select
                           style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                           value={formData.projectType}
                           onChange={(e) => setFormData({ ...formData, projectType: e.target.value })}
                         >
-                          <option value="">Select Type...</option>
-                          <option value="EPC">EPC Project</option>
-                          <option value="PPA">PPA Project</option>
-                          <option value="Retail">Retail Sales</option>
-                          <option value="Wholesale">Whole Sales</option>
-                          <option value="Service">Service / Warranty</option>
+                          <option value="">เลือกประเภท...</option>
+                          <option value="EPC">โครงการ EPC</option>
+                          <option value="PPA">โครงการ PPA</option>
+                          <option value="Retail">ขายปลีก (Retail)</option>
+                          <option value="Wholesale">ขายส่ง (Wholesale)</option>
+                          <option value="Service">งานบริการ / เคลม</option>
                         </select>
                       </div>
                       <div className="form-group">
-                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Project Name / Customer</label>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>ชื่อโครงการ / ชื่อลูกค้า</label>
                         <input
                           type="text"
-                          placeholder="Project Details..."
+                          placeholder="ระบุรายละเอียดโครงการ..."
                           style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                           value={formData.project}
                           onChange={(e) => setFormData({ ...formData, project: e.target.value })}
@@ -1220,11 +1617,11 @@ const App = () => {
 
                   <div className="form-group">
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
-                      {manageMode === 'in' ? 'DO Number (Delivery Order)' : 'Reference (PO / SO)'}
+                      {manageMode === 'in' ? 'เลขที่ DO (ใบส่งของ)' : 'เลขที่อ้างอิง (PO / SO)'}
                     </label>
                     <input
                       type="text"
-                      placeholder="Ref No..."
+                      placeholder="ระบุเลขที่อ้างอิง..."
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                       value={formData.refNumber}
                       onChange={(e) => setFormData({ ...formData, refNumber: e.target.value })}
@@ -1232,10 +1629,10 @@ const App = () => {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Remark</label>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>หมายเหตุ</label>
                     <input
                       type="text"
-                      placeholder="Notes..."
+                      placeholder="บันทึกเพิ่มเติม..."
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd' }}
                       value={formData.remark}
                       onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
@@ -1259,22 +1656,60 @@ const App = () => {
                       setFormLoading(true);
                       setUploadProgress({ current: 0, total: serialsToProcess.length });
                       try {
+                        const selectedProduct = products.find(p => p['Product ID'] === formData.productId);
+                        const modelName = selectedProduct ? selectedProduct.Model : '';
+
                         for (let i = 0; i < serialsToProcess.length; i++) {
                           const sn = serialsToProcess[i];
                           setUploadProgress({ current: i + 1, total: serialsToProcess.length });
-                          const payload = { type: manageMode, ...formData, serial: sn, qty: noSerial ? formData.qty : 1 };
-                          delete payload.bulkSerials;
-                          await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+                          // Map payload with original keys + header-matching keys for maximum compatibility
+                          const payload = {
+                            type: manageMode,
+                            // Original keys (likely what the GAS script expects)
+                            date: formData.date,
+                            productId: formData.productId,
+                            serial: sn,
+                            qty: noSerial ? formData.qty : 1,
+                            person: formData.person,
+                            refNumber: formData.refNumber,
+                            remark: formData.remark,
+                            entity: formData.entity,
+                            projectType: formData.projectType,
+                            project: formData.project,
+                            model: modelName,
+
+                            // Header-matching keys (for potential dynamic scripts)
+                            'Date': formData.date.split('-').reverse().join('/'),
+                            'Product ID': formData.productId,
+                            'Model': modelName,
+                            'Serial Number': sn,
+                            'Quantity': noSerial ? formData.qty : 1,
+                            'Person': formData.person,
+                            'Ref No.': formData.refNumber,
+                            'Remark': formData.remark,
+                            'Entity': formData.entity,
+                            'Project Type': formData.projectType,
+                            'Project Name ': formData.project
+                          };
+
+                          await fetch(GAS_API_URL, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                          });
                           if (serialsToProcess.length > 1) await new Promise(r => setTimeout(r, 200));
                         }
                         setFormStatus({ type: 'success', message: 'Recorded successfully!' });
+                        addActivityLog('Stock Transaction', `${manageMode === 'in' ? 'รับเข้า' : 'เบิกออก'}: ${formData.refNumber} (${serialsToProcess.length} รายการ)`);
                         setTimeout(() => window.location.reload(), 2000);
                       } catch (error) {
                         setFormStatus({ type: 'error', message: 'Error: ' + error.toString() });
                       } finally { setFormLoading(false); }
                     }}
                   >
-                    {formLoading ? `Processing... (${uploadProgress.current}/${uploadProgress.total})` : `Confirm ${manageMode === 'in' ? 'Receipt' : 'Delivery'}`}
+                    {formLoading ? `กำลังบันทึกข้อมูล... (${uploadProgress.current}/${uploadProgress.total})` : `ยืนยันรายการ${manageMode === 'in' ? 'รับเข้าสินค้า' : 'เบิกจ่ายสินค้า'}`}
                   </button>
                   {formStatus.message && (
                     <div style={{
@@ -1282,7 +1717,7 @@ const App = () => {
                       background: formStatus.type === 'success' ? '#d1fae5' : '#fee2e2',
                       color: formStatus.type === 'success' ? '#065f46' : '#991b1b'
                     }}>
-                      {formStatus.message}
+                      {formStatus.message === 'Recorded successfully!' ? 'บันทึกสำเร็จ!' : formStatus.message}
                     </div>
                   )}
                 </div>
