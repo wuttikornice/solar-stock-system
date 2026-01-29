@@ -6,13 +6,13 @@ import {
 } from 'recharts';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbw_v2nU8UZeHw2FSES66RjQ18xXW3jy6lnF_4gix0LIG4t0AVWd6Z-AG2q56rWRlKLZAg/exec';
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyskCWxCNzz-x6AqkQ9hXoTCb6ENF40Uyts2Ngu7eR__MmF6EQDupd5FTP0c_VyC4Iq/exec';
 
-const GIDS = {
+const GIDS_INITIAL = {
   PRODUCTS: '0',
   STOCK_IN: '314735558',
   STOCK_OUT: '1204118810',
-  USERS: '1357094185' // Updated to the correct GID from the user's sheet
+  USERS: '1357094185'
 };
 
 const THEME = {
@@ -27,6 +27,15 @@ const App = () => {
   const [products, setProducts] = useState([]);
   const [stockStatus, setStockStatus] = useState({ in: [], out: [] });
   const [users, setUsers] = useState([]);
+
+  // New Sales & CRM State
+  const [customers, setCustomers] = useState([]);
+  const [quotations, setQuotations] = useState([]);
+  const [serviceTickets, setServiceTickets] = useState([]);
+  const [salesPackages, setSalesPackages] = useState([]);
+  const [dynamicGIDs, setDynamicGIDs] = useState(() => JSON.parse(localStorage.getItem('dynamicGIDs')) || {});
+
+  const activeGIDs = { ...GIDS_INITIAL, ...dynamicGIDs };
 
   // Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
@@ -133,11 +142,17 @@ const App = () => {
         };
 
         const [prodData, inData, outData, userData] = await Promise.all([
-          fetchSheet(GIDS.PRODUCTS),
-          fetchSheet(GIDS.STOCK_IN),
-          fetchSheet(GIDS.STOCK_OUT),
-          fetchSheet(GIDS.USERS).catch(() => []) // Fallback if sheet doesn't exist yet
+          fetchSheet(activeGIDs.PRODUCTS),
+          fetchSheet(activeGIDs.STOCK_IN),
+          fetchSheet(activeGIDs.STOCK_OUT),
+          fetchSheet(activeGIDs.USERS).catch(() => [])
         ]);
+
+        // Optional: Fetch Sales & CRM data if GIDs are available
+        if (activeGIDs.Customers) fetchSheet(activeGIDs.Customers).then(setCustomers).catch(() => { });
+        if (activeGIDs.Quotations) fetchSheet(activeGIDs.Quotations).then(setQuotations).catch(() => { });
+        if (activeGIDs.Service_Tickets) fetchSheet(activeGIDs.Service_Tickets).then(setServiceTickets).catch(() => { });
+        if (activeGIDs.Sales_Packages) fetchSheet(activeGIDs.Sales_Packages).then(setSalesPackages).catch(() => { });
 
         setProducts(prodData);
         setStockStatus({ in: inData, out: outData });
@@ -206,6 +221,26 @@ const App = () => {
       setFormData(prev => ({ ...prev, person: currentUser.Name || currentUser.Username }));
     }
   }, [isLoggedIn, currentUser]);
+
+  const initSalesDatabase = async () => {
+    if (!window.confirm('ระบบจะตรวจสอบและสร้างแผ่นงานที่จำเป็น (Customers, Quotations, SO, etc.) ใน Google Sheet ของคุณ ต้องการดำเนินการใช่หรือไม่?')) return;
+    setLoading(true);
+    try {
+      const response = await fetch(GAS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'init_sales_sheets' })
+      });
+      // Note: GAS CORS might lead to opaque response, so we might need the user to tell us it's done or use a better way.
+      // But we can try to get the GIDs if possible.
+      alert('เริ่มการตั้งค่าฐานข้อมูล... กรุณารอ 10-20 วินาทีเพื่อให้ Google Sheets อัปเดต หากไม่พบความเปลี่ยนแปลง กรุณารีเฟรชหน้าเว็บ');
+      addActivityLog('Database Init', 'เริ่มการสร้างแผ่นงาน Sales & CRM');
+    } catch (err) {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const reconciledStock = useMemo(() => {
     const productAggregates = {};
@@ -614,13 +649,20 @@ const App = () => {
       <aside className="sidebar">
         <h2><span style={{ color: THEME.secondary }}>☀️</span> CMI Solar</h2>
         <nav style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>🏠 ภาพรวมคลังสินค้า</div>
-          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>การดำเนินการ</div>
+          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>🏠 ภาพรวมสต๊อก</div>
+
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>งานคลังสินค้า (Inventory)</div>
+          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ บันทึก รับ-จ่าย</div>
           <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 ติดตามซีเรียล</div>
+          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => setCurrentView('product_management')}>📦 ฐานข้อมูลสินค้า</div>
+
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>งานขาย & บริการ (Sales & CRM)</div>
+          <div className={`nav-item ${currentView === 'crm' ? 'active' : ''}`} onClick={() => setCurrentView('crm')}>👥 ข้อมูลลูกค้า (CRM)</div>
+          <div className={`nav-item ${currentView === 'quotation' ? 'active' : ''}`} onClick={() => setCurrentView('quotation')}>📄 ใบเสนอราคา (QT)</div>
+          <div className={`nav-item ${currentView === 'service' ? 'active' : ''}`} onClick={() => setCurrentView('service')}>🛠️ งานเซอร์วิส & นัดหมาย</div>
+
+          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>รายงาน & แอดมิน</div>
           <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 รายงานสรุป</div>
-          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => setCurrentView('product_management')}>📦 ข้อมูลสินค้า</div>
-          <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>แอดมิน</div>
-          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ ทำรายการสต๊อก</div>
         </nav>
         <div style={{
           marginTop: 'auto',
@@ -670,12 +712,18 @@ const App = () => {
               {currentView === 'serial_tracking' && 'ประวัติตรวจสอบหมายเลขซีเรียล'}
               {currentView === 'reports' && 'รายงานวิเคราะห์เชิงกลยุทธ์'}
               {currentView === 'manage_stock' && 'บันทึกรายการรับ-จ่ายสินค้า'}
+              {currentView === 'crm' && 'ระบบบริหารจัดการลูกค้า (CRM)'}
+              {currentView === 'quotation' && 'ระบบออกใบเสนอราคา (QT)'}
+              {currentView === 'service' && 'ระบบนัดหมายและงานเซอร์วิส'}
             </h1>
             <p style={{ color: '#666' }}>
               {currentView === 'dashboard' && 'คลิกชื่อสินค้าเพื่อดูรายละเอียดหมายเลขซีเรียล'}
               {currentView === 'serial_tracking' && 'ติดตามสินค้าตั้งแต่เริ่มเข้าคลังจนถึงการติดตั้งที่หน้างาน'}
               {currentView === 'reports' && 'สรุปการเคลื่อนย้ายคลังสินค้าและสัดส่วนตามประเภทโครงการ'}
               {currentView === 'manage_stock' && 'บันทึกการเข้า/ออกของสินค้าทั้งที่มีและไม่มีซีเรียล'}
+              {currentView === 'crm' && 'ฐานข้อมูลลูกค้าและประวัติการซื้อขาย/เซอร์วิส'}
+              {currentView === 'quotation' && 'สร้างใบเสนอราคาพรีเมียมพร้อมระบบคำนวณอัตโนมัติ'}
+              {currentView === 'service' && 'ติดตามคิวงานติดตั้งและงานซ่อมบำรุง'}
             </p>
           </div>
           <input type="text" placeholder="Search..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -1725,6 +1773,143 @@ const App = () => {
             </div>
           )
         }
+        {currentView === 'crm' && (
+          <div className="crm-container">
+            {!activeGIDs.Customers && (
+              <div className="setup-alert" style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '1.5rem', borderRadius: '12px', marginBottom: '2rem' }}>
+                <h3 style={{ margin: 0, color: '#9a3412' }}>ฐานข้อมูล CRM ยังไม่เปิดใช้งาน</h3>
+                <p style={{ color: '#c2410c', fontSize: '0.9rem', margin: '0.5rem 0 1rem 0' }}>กรุณากดปุ่มด้านล่างเพื่อสร้างแผ่นงานที่จำเป็นใน Google Sheets ของคุณ</p>
+                <button
+                  onClick={initSalesDatabase}
+                  style={{ background: THEME.secondary, color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  🚀 ตั้งค่าฐานข้อมูลงานขาย & CRM
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem' }}>รายชื่อลูกค้า ({customers.length})</h2>
+                </div>
+
+                <div className="grid-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                  {customers.map((c, i) => (
+                    <div key={i} className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px', background: 'white' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '1.1rem', color: THEME.primary }}>{c['Customer Name']}</div>
+                          <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{c['Company'] || 'บุคคลธรรมดา'}</div>
+                        </div>
+                        <span className={`badge ${c['Type'] === 'Dealer' ? 'status-active' : 'status-pending'}`} style={{ fontSize: '0.7rem' }}>
+                          {c['Type'] === 'Dealer' ? 'DEALER' : 'RETAIL'}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span>📞</span> {c['Phone'] || '-'}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span>📍</span> <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c['Address'] || '-'}</span>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.5rem' }}>
+                        <button style={{ flex: 1, padding: '0.4rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}>ดูประวัติ</button>
+                        <button
+                          style={{ flex: 1, padding: '0.4rem', background: THEME.primary, color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}
+                          onClick={() => setCurrentView('quotation')}
+                        >
+                          ออกใบ QT
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {customers.length === 0 && (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                      <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>👥</div>
+                      <div style={{ color: '#64748b' }}>ยังไม่มีข้อมูลลูกค้าในระบบ</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ width: '350px' }}>
+                <div className="card" style={{ padding: '1.5rem', position: 'sticky', top: '2rem' }}>
+                  <h3 style={{ margin: '0 0 1.5rem 0', fontSize: '1.1rem' }}>เพิ่มข้อมูลลูกค้าใหม่</h3>
+                  <form style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} onSubmit={async (e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    const customerData = {
+                      type: 'add_customer',
+                      id: 'CUST-' + Date.now(),
+                      name: form.name.value,
+                      company: form.company.value,
+                      phone: form.phone.value,
+                      address: form.address.value,
+                      customerType: form.custType.value,
+                      taxId: form.taxId.value
+                    };
+
+                    setFormLoading(true);
+                    try {
+                      await fetch(GAS_API_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(customerData)
+                      });
+                      alert('บันทึกข้อมูลลูกค้าเรียบร้อยแล้ว');
+                      addActivityLog('CRM', `เพิ่มลูกค้าใหม่: ${customerData.name}`);
+                      window.location.reload();
+                    } catch (err) {
+                      alert('เกิดข้อผิดพลาดในการบันทึก');
+                    } finally {
+                      setFormLoading(false);
+                    }
+                  }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>ชื่อลูกค้า / ผู้ติดต่อ</label>
+                      <input name="name" type="text" className="search-input" style={{ width: '100%' }} placeholder="ชื่อ-นามสกุล" required />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>บริษัท (ถ้ามี)</label>
+                      <input name="company" type="text" className="search-input" style={{ width: '100%' }} placeholder="บริษัท จำกัด" />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>เบอร์โทรศัพท์</label>
+                      <input name="phone" type="tel" className="search-input" style={{ width: '100%' }} placeholder="0xx-xxxxxxx" required />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>ที่อยู่จัดส่ง / ติดตั้ง</label>
+                      <textarea name="address" className="search-input" style={{ width: '100%', height: '80px', paddingTop: '0.5rem' }} placeholder="ที่อยู่โดยละเอียด"></textarea>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>ประเภท</label>
+                        <select name="custType" className="filter-select" style={{ width: '100%' }}>
+                          <option value="Retail">Retail</option>
+                          <option value="Dealer">Dealer</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>เลขผู้เสียภาษี</label>
+                        <input name="taxId" type="text" className="search-input" style={{ width: '100%' }} placeholder="13 หลัก" />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={formLoading}
+                      style={{ marginTop: '1rem', padding: '0.75rem', background: THEME.primary, color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', opacity: formLoading ? 0.7 : 1 }}
+                    >
+                      {formLoading ? 'กำลังบันทึก...' : '💾 บันทึกข้อมูลลูกค้า'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
       </main >
     </div >
   );
