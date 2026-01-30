@@ -1,0 +1,89 @@
+﻿Product ID,Category,Brand,Model,Unit,รับเข้า,จ่ายออก,คงเหลือ,Min Stock,สถานะ,หมายเหตุ
+PV-01,Panel,AE,AE625TME-120BDS,แผ่น,60,0,60,36,✅ ปกติ,
+PV-02,Panel,AIKO,AIKO-A500-MAH60Mb,แผ่น,1,0,1,36,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+PV-03,Panel,AIKO,AIKO-A670-MAH78Dw,แผ่น,1,0,1,36,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+PV-04,Panel,AIKO,AIKO-G650-MCH72Mw,แผ่น,84,4,80,36,✅ ปกติ,
+PV-05,Panel,RENE,RS7-595M-E2,แผ่น,7,0,7,36,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+PV-06,Panel,RENE,RS7-595N-E2,แผ่น,62,0,62,36,✅ ปกติ,
+PV-07,Panel,RENE,RS7-620N-E2,แผ่น,34,0,34,36,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+PV-08,Panel,LONGi,LONGi 555Wp,แผ่น,8,0,8,36,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+MIC-01,Micro Inverter,Hoymiles,HMS-2000 4-in-1 PEA,ตัว,58,0,58,5,✅ ปกติ,
+MIC-02,Micro Inverter,Hoymiles,HMT-2000-4T-MEA,ตัว,31,0,31,5,✅ ปกติ,
+MIC-03,Micro Inverter,Hoymiles,MIT-5000-8T,ตัว,6,0,6,5,✅ ปกติ,
+MIC-04,Micro Inverter,Hoymiles,HMS-2000D-4T,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+MIC-05,Micro Inverter,Hoymiles,HMS-450 1-in-1,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+MIC-06,Micro Inverter,Hoymiles,HMS-2000 4-in-1 MEA,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+MIC-07,Micro Inverter,Hoymiles,HMS-2000 4-in-1 MEA-SP,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+MIC-08,Micro Inverter,Hoymiles,HMT-2000-4T-MEA-SP,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+DTU-01,DTU,Hoymiles,DTU-Pro-S wifi version,ตัว,38,0,38,5,✅ ปกติ,
+DTU-02,DTU,Hoymiles,DTU-Lite S wifi version,ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+DTU-03,DTU,Hoymiles,ADCP(10),ตัว,0,0,0,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+SM-01,Smart Meter,Hoymiles,DDSU666New-Via-CT-100A,ตัว,37,1,36,5,✅ ปกติ,
+SM-02,Smart Meter,Hoymiles,DTS666New-Via-CT-3-100A,ตัว,9,0,9,5,✅ ปกติ,
+SM-03,Smart Meter,Hoymiles,DTS666New-Via-CT-3-250A,ตัว,44,0,44,5,✅ ปกติ,
+SM-04,Smart Meter,Hoymiles,DDSD1352-CT,ตัว,1,0,1,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+SM-05,Smart Meter,Hoymiles,DTSD3366D-W1-A,ตัว,2,0,2,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+SM-06,Smart Meter,Hoymiles,DTSU666 100/40mA,ตัว,1,0,1,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+SM-07,Smart Meter,Hoymiles,DTSU666-Via-CT-3-5A-HMicro,ตัว,4,0,4,5,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+SM-08,Smart Meter,Hoymiles,DTSU666 CT-3-1.5(6)A,ตััว,8,0,8,5,✅ ปกติ,
+OPT-01,Optimizer,Hoymiles,AMCP500-600T1,ตัว,0,0,0,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-01,Accessories for Hoymiles,Hoymiles,3P-AC Trunk cable_14T_14L_10AWG-3.05m,ชิ้น,2,0,2,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-02,Accessories for Hoymiles,Hoymiles,3P-AC Trunk cable_1T_1L_10AWG-3.05m,ชิ้น,0,0,0,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-03,Accessories for Hoymiles,Hoymiles,3P-AC Trunk End Cap,ชิ้น,20,0,20,10,✅ ปกติ,
+ACC-04,Accessories for Hoymiles,Hoymiles,3P-AC Trunk Port Disconnect Tool,ชิ้น,5,0,5,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-05,Accessories for Hoymiles,Hoymiles,3P-AC Trunk Connector Unlock Tool,ชิ้น,0,0,0,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-06,Accessories for Hoymiles,Hoymiles,AC Trunk Cable_1T_1L_10AWG-2m,ชิ้น,53,1,52,10,✅ ปกติ,
+ACC-07,Accessories for Hoymiles,Hoymiles,AC Trunk Connector Unlock Tool,ชิ้น,1,0,1,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-08,Accessories for Hoymiles,Hoymiles,AC Trunk End Cap,ชิ้น,42,1,41,10,✅ ปกติ,
+ACC-09,Accessories for Hoymiles,Hoymiles,AC Trunk Port Disconnect Tool,ชิ้น,1,0,1,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-10,Accessories for Hoymiles,Hoymiles,HMS Cable Terminal Connector,ชิ้น,40,0,40,10,✅ ปกติ,
+ACC-11,Accessories for Hoymiles,Hoymiles,HMS Connection Cable-EN40-230,ชิ้น,35,0,35,10,✅ ปกติ,
+ACC-12,Accessories for Hoymiles,Hoymiles,HMS Disconnect Tool,ชิ้น,9,0,9,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-13,Accessories for Hoymiles,Hoymiles,HMS Extension Connector,ชิ้น,3,0,3,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-14,Accessories for Hoymiles,Hoymiles,HMS Field Connector,ชิ้น,1,0,1,10,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACC-15,Accessories for Hoymiles,Hoymiles,HMS Sealing Cap,ชิ้น,29,0,29,10,✅ ปกติ,
+ACC-16,Accessories for Hoymiles,Hoymiles,HMS Trunk Connector,ชิ้น,59,0,59,10,✅ ปกติ,
+Bat-01,Control Box,Hoymiles,HB-10C-G2,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-02,Battery,Hoymiles,HB-3S-G2-PackA,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-03,Battery,Hoymiles,HB-3S-G2-PackB,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+ACI-01,AC-coupled Inverter,Hoymiles,HAS-5.0LV-EUG1,ตัว,1,0,1,1,✅ ปกติ,
+ACI-02,AC-coupled Inverter,Hoymiles,HAS-5.0LV-EUG1-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-01,Hybrid Inverter,Hoymiles,HIT-10L-G3,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-02,Hybrid Inverter,Hoymiles,HIT-10L-G3-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-03,Hybrid Inverter,Hoymiles,HIT-15L-G3,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-04,Hybrid Inverter,Hoymiles,HIT-15L-G3-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-05,Hybrid Inverter,Hoymiles,HIT-20L-G3,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+HYB-06,Hybrid Inverter,Hoymiles,HIT-20L-G3-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-01,Rapid Shutdown,Hoymiles,HT-G20-Kit_150,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-02,Rapid Shutdown,Hoymiles,HT-G20-Kit_150-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-03,Rapid Shutdown,Hoymiles,HT-G20-Kit_250,ตัว,2,0,2,1,✅ ปกติ,
+RSD-04,Rapid Shutdown,Hoymiles,HT-G20-Kit_250-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-05,Hybrid Inverter,Hoymiles,HYT-12.0HV-EUGI,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-06,Hybrid Inverter,Hoymiles,HYS-10.0LV-EUG2,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-07,Hybrid Inverter,Hoymiles,HYS-10.0LV-EUG2-SP,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+RSD-08,Hybrid Inverter,Hoymiles,HYS-6.0LV-EUGI,ตัว,1,0,1,1,✅ ปกติ,
+Bat-04,Battery,Hoymiles,LB-(5-20)S-G2-Base,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-05,Battery,Hoymiles,LB-10C-G2,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-06,Battery,Hoymiles,LB-5D-G2,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-07,Battery,Hoymiles,LB-5S-G1-PackA,เซ็ท,1,0,1,1,✅ ปกติ,
+Bat-08,Battery,Hoymiles,LB-5S-G1-PackB,เซ็ท,1,0,1,1,✅ ปกติ,
+Bat-09,Battery,Hoymiles,LB-5S-G2-Pack,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Bat-10,Battery,Hoymiles,LB-7C-G1,เซ็ท,1,0,1,1,✅ ปกติ,
+KEH-01,String Inverter,Kehua,SPI10K-B X2,ตัว,1,0,1,1,✅ ปกติ,
+KEH-02,String Inverter,Kehua,SPI40K-B X2,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-03,String Inverter,Kehua,SPI5000-B2,ตัว,1,0,1,1,✅ ปกติ,
+KEH-04,String Inverter,Kehua,SPI7000-B X2,ตัว,1,0,1,1,✅ ปกติ,
+KEH-05,Battery,Kehua,iStoragE B5-S1,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-06,Battery,Kehua,iStoragE B5-S2,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-07,Battery,Kehua,iStoragE1 5000,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-08,Battery,Kehua,iStoragE3 8000,เซ็ท,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-09,Rapid Shutdown,Hoymiles,HRSD-2C_15A_1000V,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-10,Rapid Shutdown,Hoymiles,HRSD-2C-1500-JJ46H,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-11,Rapid Shutdown,Hoymiles,HRSD-2C-B-SS28L,ตัว,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+KEH-12,Rapid Shutdown,Hoymiles,HRSD-2C-B-SS78L,ตัว,1,0,1,1,✅ ปกติ,
+Flex-01,Flex,สหไฟฟ้า,S3-CTC-EN4060C,ม้วน,0,0,0,1,⚠️  ต่ำกว่าขั้นต่ำ,ต้องสั่งเพิ่ม
+Flex-02,Flex,สหไฟฟ้า,T5-CC-EN60-460,ม้วน,6,0,6,1,✅ ปกติ,
+Flex-03,Flex,สหไฟฟ้า,T5-CTC-EN60C,ม้วน,6,0,6,1,✅ ปกติ,
+Flex-04,Flex,สหไฟฟ้า,T5-DT,ม้วน,6,0,6,1,✅ ปกติ,
+Flex-05,Flex,สหไฟฟ้า,T5-EC,ม้วน,6,0,6,1,✅ ปกติ,
+Flex-06,Flex,สหไฟฟ้า,T5-TC,ม้วน,6,0,6,1,✅ ปกติ,
