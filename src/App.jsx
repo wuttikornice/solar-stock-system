@@ -59,6 +59,10 @@ const App = () => {
 
   const activeGIDs = { ...GIDS_INITIAL, ...dynamicGIDs };
 
+  const [soQtRef, setSoQtRef] = useState('');
+  const [soQtLink, setSoQtLink] = useState('');
+  const [soItems, setSoItems] = useState([]);
+
   // Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('currentUser')) || null);
