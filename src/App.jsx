@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
-const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbz9f20UsC_B0Fev2At5RJcOg-dObp7NtBcI2KCefTrEYCXP7xww0qvNO3jff7PY7gONOQ/exec';
+const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbz7ICpezvo7a38B73XEOK-lWcewU7ziQ0qZMLkj0NOg-fNebDAs8Gu8nRGTxdI2GA/exec';
 
 const GIDS_INITIAL = {
   PRODUCTS: '0',
@@ -152,6 +152,8 @@ const App = () => {
   const [soFilterCategory, setSoFilterCategory] = useState('All');
   const [soFilterBrand, setSoFilterBrand] = useState('All');
   const [selectedSoForView, setSelectedSoForView] = useState(null);
+  const [selectedSoCustomer, setSelectedSoCustomer] = useState(null);
+  const [soProjectName, setSoProjectName] = useState('');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [filterCompany, setFilterCompany] = useState('All');
   const [showLowStockAlerts, setShowLowStockAlerts] = useState(false);
@@ -184,7 +186,7 @@ const App = () => {
     location: '',
     description: '',
     serialNumber: '',
-    estimatedCost: ''
+    resolution: ''
   });
 
   // 🟢 Helper for fuzzy key matching - upgraded to be more aggressive
@@ -233,6 +235,7 @@ const App = () => {
     if (sTarget === 'salesphone') result = findByKey(['Sales Phone', 'เบอร์โทรผู้ขาย', 'Sales Tel']);
     if (sTarget === 'projectname' && result === null) result = findByKey(['Project', 'โครงการ', 'Project Name']);
     if (sTarget === 'address' && !result) result = findByKey(['Address', 'ที่อยู่', 'ที่อยู่ส่งของ']);
+    if (sTarget === 'resolution') result = findByKey(['Resolution/Problems', 'Resolution', 'Problems', 'ผลการแก้ไข', 'รายละเอียดการซ่อม']);
 
     if (result) return result;
 
@@ -246,9 +249,8 @@ const App = () => {
       case 'grandtotal': return values[5] || 0;
       case 'qtref': return values[7] || '';
       case 'status': return values[8] || 'Pending';
-      case 'address':
-        // Try index 4 (Address column) and index 5 (Type column if shifted)
-        return values[4] || values[5] || '';
+      case 'address': return values[9] || '';
+      case 'resolution': return values[11] || '';
       default: return '';
     }
   };
@@ -371,25 +373,30 @@ const App = () => {
         });
       };
 
-      const [prodData, inData, outData, userData] = await Promise.all([
+      const [prodData, inData, outData, userData, customerData, serviceData, claimData] = await Promise.all([
         fetchSheet(activeGIDs.PRODUCTS),
         fetchSheet(activeGIDs.STOCK_IN),
         fetchSheet(activeGIDs.STOCK_OUT),
-        fetchSheet(activeGIDs.USERS).catch(() => [])
+        fetchSheet(activeGIDs.USERS).catch(() => []),
+        activeGIDs.CUSTOMERS ? fetchSheet(activeGIDs.CUSTOMERS).catch(() => []) : Promise.resolve([]),
+        activeGIDs.SERVICE_TICKETS ? fetchSheet(activeGIDs.SERVICE_TICKETS).catch(() => []) : Promise.resolve([]),
+        activeGIDs.CLAIMS ? fetchSheet(activeGIDs.CLAIMS).catch(() => []) : Promise.resolve([])
       ]);
 
-      // Optional: Fetch Sales & CRM data if GIDs are available
-      if (activeGIDs.CUSTOMERS) fetchSheet(activeGIDs.CUSTOMERS).then(setCustomers).catch(() => { });
+      // Optional: Fetch other data without blocking
       if (activeGIDs.QUOTATIONS) fetchSheet(activeGIDs.QUOTATIONS).then(setQuotations).catch(() => { });
-      if (activeGIDs.SERVICE_TICKETS) fetchSheet(activeGIDs.SERVICE_TICKETS).then(setServiceTickets).catch(() => { });
       if (activeGIDs.SALES_PACKAGES) fetchSheet(activeGIDs.SALES_PACKAGES).then(setSalesPackages).catch(() => { });
       if (activeGIDs.SALES_ORDERS) fetchSheet(activeGIDs.SALES_ORDERS).then(data => {
         if (data && data.length > 0) console.log("REQ Data Sample:", data[0]);
         setSalesOrders(Array.isArray(data) ? data : []);
       }).catch(() => { });
-      if (activeGIDs.CLAIMS) fetchSheet(activeGIDs.CLAIMS).then(setClaims).catch(() => { });
 
       setProducts(prodData);
+      setStockStatus({ in: inData, out: outData });
+      setUsers(userData);
+      setCustomers(customerData);
+      setServiceTickets(serviceData);
+      setClaims(claimData);
       setStockStatus({ in: inData, out: outData });
       setUsers(userData);
       setLoading(false);
@@ -847,6 +854,15 @@ const App = () => {
   const categoriesList = useMemo(() => ['All', ...new Set(products.map(p => p.Category).filter(Boolean))], [products]);
   const brandsList = useMemo(() => ['All', ...new Set(products.map(p => p.Brand).filter(Boolean))], [products]);
 
+  const filteredCustomers = useMemo(() => {
+    if (!searchTerm) return customers;
+    return customers.filter(c =>
+      Object.values(c).some(val =>
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+  }, [customers, searchTerm]);
+
   const filteredItems = useMemo(() => {
     if (currentView === 'dashboard') {
       let result = stockData.filter(item => {
@@ -1186,6 +1202,38 @@ const App = () => {
                   {reportData.lowStockItems}
                 </span>
               </div>
+            </div>
+
+            {/* ⚡ Quick Actions Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+              <button
+                onClick={() => { setCurrentView('manage_stock'); setManageMode('in'); }}
+                className="card-action"
+                style={{ padding: '1rem', background: '#ecfdf5', border: '1px solid #10b981', borderRadius: '12px', color: '#047857', fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{ fontSize: '1.5rem' }}>📥</span> รับของเข้า
+              </button>
+              <button
+                onClick={() => { setCurrentView('manage_stock'); setManageMode('out'); }}
+                className="card-action"
+                style={{ padding: '1rem', background: '#fff7ed', border: '1px solid #f97316', borderRadius: '12px', color: '#c2410c', fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{ fontSize: '1.5rem' }}>📤</span> เบิกของออก
+              </button>
+              <button
+                onClick={() => { setCurrentView('service'); setServiceSubView('service'); }}
+                className="card-action"
+                style={{ padding: '1rem', background: '#eff6ff', border: '1px solid #3b82f6', borderRadius: '12px', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{ fontSize: '1.5rem' }}>🛠️</span> เปิดงานซ่อม
+              </button>
+              <button
+                onClick={() => { setCurrentView('crm'); }}
+                className="card-action"
+                style={{ padding: '1rem', background: '#f5f3ff', border: '1px solid #8b5cf6', borderRadius: '12px', color: '#6d28d9', fontWeight: 700, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{ fontSize: '1.5rem' }}>👥</span> ดูข้อมูลลูกค้า
+              </button>
             </div>
 
             {/* ✅ ข้อ 4: ระบบแจ้งเตือนสต๊อกต่ำแบบ Real-time */}
@@ -1661,14 +1709,26 @@ const App = () => {
                       }
                       setFormLoading(true);
                       try {
-                        const payload = { type: 'add_product', ...productFormData };
+                        const payload = {
+                          type: 'add_product',
+                          values: [
+                            productFormData.id,
+                            productFormData.model,
+                            productFormData.brand,
+                            productFormData.category,
+                            productFormData.unit,
+                            productFormData.minStock,
+                            productFormData.imageUrl,
+                            productFormData.description
+                          ]
+                        };
                         await fetch(GAS_API_URL, {
                           method: 'POST',
-
+                          mode: 'no-cors',
                           body: JSON.stringify(payload)
                         });
-                        setFormStatus({ type: 'success', message: 'Product added successfully! Refreshing data...' });
-                        setTimeout(() => window.location.reload(), 2000);
+                        setFormStatus({ type: 'success', message: 'Product added successfully!' });
+                        fetchAllSheets();
                       } catch (err) {
                         setFormStatus({ type: 'error', message: 'Failed to add product: ' + err.toString() });
                       } finally {
@@ -2229,11 +2289,21 @@ const App = () => {
                           className="filter-select"
                           style={{ width: '100%', padding: '0.75rem' }}
                           value={serviceFormData.customer}
-                          onChange={(e) => setServiceFormData({ ...serviceFormData, customer: e.target.value })}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const selectedCust = customers.find(c => String(c['Customer ID']) === String(selectedId));
+                            const address = selectedCust ? getValueResilient(selectedCust, 'address') : '';
+
+                            setServiceFormData({
+                              ...serviceFormData,
+                              customer: selectedId,
+                              location: address || serviceFormData.location // Only overwrite if address exists
+                            });
+                          }}
                         >
                           <option value="">-- เลือกลูกค้า --</option>
                           {customers.map(c => (
-                            <option key={c['Customer ID']} value={c['Customer Name']}>
+                            <option key={c['Customer ID']} value={c['Customer ID']}>
                               {c['Customer Name']}
                             </option>
                           ))}
@@ -2268,7 +2338,6 @@ const App = () => {
                           type="date"
                           className="search-input"
                           style={{ width: '100%', padding: '0.75rem' }}
-                          min={new Date().toISOString().split('T')[0]}
                           value={serviceFormData.appointmentDate}
                           onChange={(e) => setServiceFormData({ ...serviceFormData, appointmentDate: e.target.value })}
                         />
@@ -2330,30 +2399,40 @@ const App = () => {
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: '#374151' }}>
                           Serial Number อุปกรณ์ที่เกี่ยวข้อง
                         </label>
-                        <input
-                          type="text"
-                          placeholder="ระบุ Serial Number (ถ้ามี)..."
-                          className="search-input"
-                          style={{ width: '100%', padding: '0.75rem' }}
-                          value={serviceFormData.serialNumber}
-                          onChange={(e) => setServiceFormData({ ...serviceFormData, serialNumber: e.target.value })}
-                        />
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <input
+                            type="text"
+                            placeholder="ระบุ Serial Number (ถ้ามี)..."
+                            className="search-input"
+                            style={{ flex: 1, padding: '0.75rem' }}
+                            value={serviceFormData.serialNumber}
+                            onChange={(e) => setServiceFormData({ ...serviceFormData, serialNumber: e.target.value })}
+                          />
+                          <button
+                            className="badge"
+                            style={{ border: 'none', background: '#f1f5f9', cursor: 'pointer', padding: '0 1rem' }}
+                            onClick={() => {
+                              const sn = window.prompt('ป้อน Serial Number เพื่อตรวจสอบประวัติ:');
+                              if (sn) setServiceFormData({ ...serviceFormData, serialNumber: sn });
+                            }}
+                          >
+                            🔍 Lookup
+                          </button>
+                        </div>
                       </div>
 
-                      {/* ค่าใช้จ่ายประเมิน */}
+                      {/* ผลการแก้ไข/รายละเอียดการซ่อม */}
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: '#374151' }}>
-                          ค่าใช้จ่ายประเมิน (บาท)
+                          ผลการแก้ไข / รายละเอียดการซ่อม (Resolution)
                         </label>
                         <input
-                          type="number"
-                          placeholder="0.00"
+                          type="text"
+                          placeholder="รายละเอียดการแก้ไขปัญหา..."
                           className="search-input"
                           style={{ width: '100%', padding: '0.75rem' }}
-                          min="0"
-                          step="0.01"
-                          value={serviceFormData.estimatedCost}
-                          onChange={(e) => setServiceFormData({ ...serviceFormData, estimatedCost: e.target.value })}
+                          value={serviceFormData.resolution}
+                          onChange={(e) => setServiceFormData({ ...serviceFormData, resolution: e.target.value })}
                         />
                       </div>
                     </div>
@@ -2380,22 +2459,29 @@ const App = () => {
                           setFormLoading(true);
                           try {
                             const ticketId = 'TK-' + new Date().toISOString().slice(2, 10).replace(/-/g, '') + '-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+
+                            // Lookup Customer Name from ID
+                            const selectedCust = customers.find(c => String(c['Customer ID']) === String(serviceFormData.customer));
+                            const customerName = selectedCust ? selectedCust['Customer Name'] : serviceFormData.customer;
+
                             console.log('GAS_API_URL:', GAS_API_URL);
                             const payload = {
                               type: 'add_service',
-                              'Ticket ID': ticketId,
-                              'Date': new Date().toLocaleDateString('th-TH'),
-                              'Appointment Date': serviceFormData.appointmentDate,
-                              'Customer ID': serviceFormData.customer,
-                              'Service Type': serviceFormData.type,
-                              'Technician': serviceFormData.technician,
-                              'Status': 'Pending',
-                              'Notes': serviceFormData.description,
-                              ...serviceFormData,
-                              ticketId,
-                              status: 'Pending'
+                              values: [
+                                ticketId,
+                                serviceFormData.appointmentDate,
+                                new Date().toLocaleDateString('th-TH'),
+                                serviceFormData.customer,
+                                customerName,
+                                serviceFormData.type,
+                                serviceFormData.technician,
+                                'Pending',
+                                serviceFormData.description,
+                                serviceFormData.location,
+                                serviceFormData.serialNumber,
+                                serviceFormData.resolution
+                              ]
                             };
-                            console.log('Final Payload for GAS:', payload);
                             await fetch(GAS_API_URL, {
                               method: 'POST',
                               mode: 'no-cors',
@@ -2405,7 +2491,7 @@ const App = () => {
                             alert('บันทึกงานเซอร์วิสสำเร็จ!');
                             setServiceFormData({
                               customer: '', type: '', appointmentDate: new Date().toISOString().split('T')[0],
-                              technician: '', location: '', description: '', serialNumber: '', estimatedCost: ''
+                              technician: '', location: '', description: '', serialNumber: '', resolution: ''
                             });
                             fetchAllSheets();
                           } catch (e) { alert('เกิดข้อผิดพลาด'); } finally { setFormLoading(false); }
@@ -2480,131 +2566,144 @@ const App = () => {
                         </p>
                       </div>
                     ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 0.5rem' }}>
-                          <thead>
-                            <tr style={{ textAlign: 'left', color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>
-                              <th style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px 0 0 8px' }}>Ticket ID</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc' }}>ลูกค้า</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc' }}>ประเภทงาน</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc' }}>วันที่นัด</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc' }}>ช่าง</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc' }}>สถานะ</th>
-                              <th style={{ padding: '1rem', background: '#f8fafc', borderRadius: '0 8px 8px 0' }}>การจัดการ</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {serviceTickets.map((ticket, idx) => (
-                              <tr key={idx} style={{ background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <td style={{ padding: '1rem', borderRadius: '8px 0 0 8px', fontWeight: 700, color: THEME.primary }}>
-                                  {ticket['Ticket ID'] || `TK-${idx + 1}`}
-                                </td>
-                                <td style={{ padding: '1rem' }}>
-                                  <div style={{ fontWeight: 600 }}>{ticket['Customer Name'] || '-'}</div>
-                                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{ticket['Customer Phone'] || '-'}</div>
-                                </td>
-                                <td style={{ padding: '1rem' }}>
-                                  <span style={{
-                                    padding: '0.25rem 0.75rem',
-                                    borderRadius: '12px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 600,
-                                    background: ticket['Service Type'] === 'Installation' ? '#dbeafe' :
-                                      ticket['Service Type'] === 'Maintenance' ? '#fef3c7' :
-                                        ticket['Service Type'] === 'Inspection' ? '#e0e7ff' : '#fee2e2',
-                                    color: ticket['Service Type'] === 'Installation' ? '#1e40af' :
-                                      ticket['Service Type'] === 'Maintenance' ? '#92400e' :
-                                        ticket['Service Type'] === 'Inspection' ? '#4338ca' : '#991b1b'
-                                  }}>
-                                    {ticket['Service Type'] || 'N/A'}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '1rem', fontSize: '0.9rem' }}>
-                                  {ticket['Appointment Date'] || '-'}
-                                </td>
-                                <td style={{ padding: '1rem', fontSize: '0.9rem' }}>
-                                  {ticket['Technician'] || 'ยังไม่ระบุ'}
-                                </td>
-                                <td style={{ padding: '1rem' }}>
-                                  <span style={{
-                                    padding: '0.4rem 0.9rem',
-                                    borderRadius: '20px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 700,
-                                    background: ticket.Status === 'Completed' || ticket.Status === 'เสร็จสิ้น' ? '#d1fae5' :
-                                      ticket.Status === 'In Progress' || ticket.Status === 'กำลังดำเนินการ' ? '#dbeafe' :
-                                        ticket.Status === 'Cancelled' || ticket.Status === 'ยกเลิก' ? '#fee2e2' : '#fef3c7',
-                                    color: ticket.Status === 'Completed' || ticket.Status === 'เสร็จสิ้น' ? '#065f46' :
-                                      ticket.Status === 'In Progress' || ticket.Status === 'กำลังดำเนินการ' ? '#1e40af' :
-                                        ticket.Status === 'Cancelled' || ticket.Status === 'ยกเลิก' ? '#991b1b' : '#92400e'
-                                  }}>
-                                    {ticket.Status || 'รอดำเนินการ'}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '1rem', borderRadius: '0 8px 8px 0' }}>
-                                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    {/* Status Update Buttons */}
-                                    {ticket.Status === 'Pending' && (
-                                      <button
-                                        onClick={async () => {
-                                          if (!window.confirm('ต้องการเปลี่ยนสถานะเป็น "In Progress" ใช่หรือไม่?')) return;
-                                          setFormLoading(true);
-                                          try {
-                                            const payload = { type: 'update_service_status', ticketId: ticket['Ticket ID'], status: 'In Progress' };
-                                            await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                            alert('อัปเดตสถานะสำเร็จ');
-                                            fetchAllSheets();
-                                          } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                        }}
-                                        className="badge badge-blue" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>⏳ เริ่มงาน</button>
-                                    )}
-                                    {ticket.Status === 'In Progress' && (
-                                      <button
-                                        onClick={async () => {
-                                          if (!window.confirm('ต้องการปิดงานเซอร์วิสนี้ใช่หรือไม่?')) return;
-                                          setFormLoading(true);
-                                          try {
-                                            const payload = { type: 'update_service_status', ticketId: ticket['Ticket ID'], status: 'Completed' };
-                                            await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                            alert('ปิดงานสำเร็จ');
-                                            fetchAllSheets();
-                                          } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                        }}
-                                        className="badge badge-green" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>✅ ปิดงาน</button>
-                                    )}
-                                    <button
-                                      onClick={() => {
-                                        setPreviewQt({
-                                          ...ticket,
-                                          'Customer Name': ticket['Customer Name'],
-                                          'Type': 'Service Ticket'
-                                        });
-                                      }}
-                                      className="badge"
-                                      style={{ background: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0.4rem 0.6rem' }}
-                                      title="ดูรายละเอียดงาน"
-                                    >🔍</button>
-                                    <button
-                                      onClick={() => {
-                                        setServiceSubView('claims');
-                                        setClaimFormData({
-                                          ...claimFormData,
-                                          jobId: ticket['Ticket ID'],
-                                          customer: ticket['Customer Name'],
-                                          description: ticket['Problem Details'] || ticket['Problem Reported'] || '',
-                                          serialNumber: ticket['Serial Number'] || ''
-                                        });
-                                      }}
-                                      className="badge badge-orange"
-                                      style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '0.4rem 0.6rem' }}
-                                      title="สร้างรายการเคลมจากงานเซอร์วิสนี้"
-                                    >🛡️ เคลม</button>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
+                        {serviceTickets.map((ticket, idx) => {
+                          const status = ticket.Status || 'Pending';
+                          const statusConfig = {
+                            'Completed': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
+                            'เสร็จสิ้น': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
+                            'In Progress': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
+                            'กำลังดำเนินการ': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
+                            'Cancelled': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
+                            'ยกเลิก': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
+                            'Pending': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' },
+                            'รอดำเนินการ': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' }
+                          };
+                          const config = statusConfig[status] || statusConfig['Pending'];
+
+                          return (
+                            <div key={idx} className="card-hover" style={{
+                              background: 'white',
+                              borderRadius: '16px',
+                              border: '1px solid #e2e8f0',
+                              padding: '1.5rem',
+                              position: 'relative',
+                              transition: 'all 0.3s ease',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '1rem',
+                              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <div>
+                                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: THEME.primary, marginBottom: '0.25rem' }}>
+                                    {ticket['Ticket ID'] || `TK-${idx + 1}`}
                                   </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>{ticket['Customer Name'] || '-'}</h3>
+                                </div>
+                                <span style={{
+                                  padding: '0.4rem 0.8rem',
+                                  borderRadius: '20px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 800,
+                                  background: config.bg,
+                                  color: config.text,
+                                  border: `1px solid ${config.border}`
+                                }}>
+                                  {config.label}
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.85rem' }}>
+                                <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>ประเภทงาน</div>
+                                  <div style={{ fontWeight: 600, color: THEME.primary }}>{ticket['Service Type'] || 'N/A'}</div>
+                                </div>
+                                <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>วันที่นัดหมาย</div>
+                                  <div style={{ fontWeight: 600 }}>{ticket['Appointment Date'] || '-'}</div>
+                                </div>
+                                <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>ช่างที่ดูแล</div>
+                                  <div style={{ fontWeight: 600 }}>{ticket['Technician'] || 'ยังไม่ระบุ'}</div>
+                                </div>
+                                <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>S/N อุปกรณ์</div>
+                                  <div style={{ fontWeight: 700, color: THEME.secondary }}>{ticket['Serial Number'] || '-'}</div>
+                                </div>
+                              </div>
+
+                              <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', fontSize: '0.8rem', color: '#475569' }}>
+                                <div style={{ fontWeight: 700, marginBottom: '0.25rem', color: '#64748b' }}>ผลการแก้ไข:</div>
+                                {getValueResilient(ticket, 'resolution') || '-'}
+                              </div>
+
+                              <div style={{ marginTop: 'auto', display: 'flex', gap: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                                {status === 'Pending' && (
+                                  <button
+                                    onClick={async () => {
+                                      const res = window.prompt('ระบุรายละเอียดความคืบหน้า (Progress/Resolution):', getValueResilient(ticket, 'resolution') || '');
+                                      if (res === null) return;
+                                      setFormLoading(true);
+                                      try {
+                                        const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
+                                        const payload = {
+                                          type: 'update_service_status',
+                                          idColumn: 'Ticket ID',
+                                          idValue: ticket['Ticket ID'],
+                                          updates: { 'Status': 'In Progress', [resKey]: res }
+                                        };
+                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                        alert('อัปเดตสถานะสำเร็จ');
+                                        fetchAllSheets();
+                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                    }}
+                                    style={{ flex: 1, padding: '0.6rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
+                                  >⏳ เริ่มงาน</button>
+                                )}
+                                {status === 'In Progress' && (
+                                  <button
+                                    onClick={async () => {
+                                      const res = window.prompt('ระบุผลการแก้ไข/ปิดงาน (Final Resolution):', getValueResilient(ticket, 'resolution') || '');
+                                      if (res === null) return;
+                                      setFormLoading(true);
+                                      try {
+                                        const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
+                                        const payload = {
+                                          type: 'update_service_status',
+                                          idColumn: 'Ticket ID',
+                                          idValue: ticket['Ticket ID'],
+                                          updates: { 'Status': 'Completed', [resKey]: res }
+                                        };
+                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                        alert('ปิดงานสำเร็จ');
+                                        fetchAllSheets();
+                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                    }}
+                                    style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
+                                  >✅ ปิดงาน</button>
+                                )}
+                                <button
+                                  onClick={() => setPreviewQt({ ...ticket, 'Customer Name': ticket['Customer Name'], 'Type': 'Service Ticket' })}
+                                  style={{ padding: '0.6rem', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                                >🔍</button>
+                                <button
+                                  onClick={() => {
+                                    setServiceSubView('claims');
+                                    setClaimFormData({
+                                      ...claimFormData,
+                                      jobId: ticket['Ticket ID'],
+                                      customer: ticket['Customer Name'],
+                                      description: ticket['Problem Details'] || ticket['Problem Reported'] || '',
+                                      serialNumber: ticket['Serial Number'] || ''
+                                    });
+                                  }}
+                                  style={{ padding: '0.6rem', background: '#fff7ed', color: '#c2410c', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                                >🛡️ เคลม</button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -2665,11 +2764,50 @@ const App = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>เลขที่ Job ID (ถ้ามี)</label>
-                        <input type="text" className="search-input" style={{ width: '100%' }} value={claimFormData.jobId} onChange={e => setClaimFormData({ ...claimFormData, jobId: e.target.value })} />
+                        <input
+                          type="text"
+                          placeholder="พิมพ์เลขที่ Job (เช่น TK-...)"
+                          className="search-input"
+                          style={{ width: '100%' }}
+                          value={claimFormData.jobId}
+                          onChange={e => {
+                            const val = e.target.value.trim();
+                            const ticket = serviceTickets.find(t => {
+                              const tid = String(t['Ticket ID'] || t['TicketID'] || t['ID'] || '').trim().toLowerCase();
+                              return tid === val.toLowerCase();
+                            });
+                            if (ticket) {
+                              setClaimFormData({
+                                ...claimFormData,
+                                jobId: e.target.value,
+                                customer: ticket['Customer Name'] || ticket['Customer'] || ticket['Name'] || '',
+                                serialNumber: ticket['Serial Number'] || ticket['SerialNumber'] || ticket['SN'] || ''
+                              });
+                            } else {
+                              setClaimFormData({ ...claimFormData, jobId: e.target.value });
+                            }
+                          }}
+                        />
                       </div>
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>ลูกค้า / โครงการ</label>
                         <input type="text" className="search-input" style={{ width: '100%' }} value={claimFormData.customer} onChange={e => setClaimFormData({ ...claimFormData, customer: e.target.value })} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>อุปกรณ์ที่ต้องการเคลม</label>
+                        <select
+                          className="filter-select"
+                          style={{ width: '100%' }}
+                          value={claimFormData.model}
+                          onChange={e => setClaimFormData({ ...claimFormData, model: e.target.value })}
+                        >
+                          <option value="">-- เลือกรายการอุปกรณ์ --</option>
+                          {products.map(p => (
+                            <option key={p['Product ID']} value={p.Model}>
+                              {p.Brand} - {p.Model}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>หมายเลข Serial Number</label>
@@ -2696,21 +2834,23 @@ const App = () => {
                         const claimId = 'CLM-' + new Date().toISOString().slice(2, 10).replace(/-/g, '') + '-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
                         const payload = {
                           type: 'add_claim',
-                          'Job ID': claimFormData.jobId,
-                          'Customer': claimFormData.customer,
-                          'Serial Number': claimFormData.serialNumber,
-                          'Description': claimFormData.description,
-                          'Status': claimFormData.status || 'Received',
-                          'Date': new Date().toLocaleDateString('th-TH'),
-                          'Claim ID': claimId,
-                          ...claimFormData,
-                          claimId
+                          values: [
+                            claimId,
+                            new Date().toLocaleDateString('th-TH'),
+                            claimFormData.customer,
+                            claimFormData.model,
+                            claimFormData.serialNumber,
+                            claimFormData.description,
+                            claimFormData.status || 'Received',
+                            '', // Repair Details
+                            ''  // Date Returned
+                          ]
                         };
                         setFormLoading(true);
                         try {
                           await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
                           alert('บันทึกข้อมูลการเคลมสำเร็จ!');
-                          setClaimFormData({ jobId: '', customer: '', serialNumber: '', description: '', status: 'Received' });
+                          setClaimFormData({ jobId: '', customer: '', productId: '', model: '', serialNumber: '', description: '', status: 'Received' });
                           fetchAllSheets();
                         } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
                       }}
@@ -2720,111 +2860,134 @@ const App = () => {
                   </div>
 
                   {/* รายการเคลมทั้งหมด */}
-                  <div className="card" style={{ padding: '0' }}>
-                    <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0' }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>ID / วันที่</th>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>ลูกค้า / Job ID</th>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>Serial Number</th>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>สถานะการเคลม</th>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>การจัดการ</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {claims.map((claim, idx) => (
-                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '1rem' }}>
-                              <div style={{ fontWeight: 700 }}>{claim.ClaimID || claim['Claim ID']}</div>
-                              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{claim.Date || claim['Claim Date']}</div>
-                            </td>
-                            <td style={{ padding: '1rem' }}>
-                              <div style={{ fontWeight: 600 }}>{claim.Customer}</div>
-                              <div style={{ fontSize: '0.75rem', color: THEME.primary }}>Job: {claim.JobID || claim['Job ID'] || '-'}</div>
-                            </td>
-                            <td style={{ padding: '1rem', fontWeight: 700, color: THEME.secondary }}>{claim.SerialNumber || claim['Serial Number']}</td>
-                            <td style={{ padding: '1rem' }}>
-                              <span style={{
-                                padding: '0.3rem 0.8rem',
-                                borderRadius: '20px',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                background: claim.Status === 'Returned' ? '#d1fae5' : (claim.Status === 'Sent to Vendor' ? '#fef3c7' : '#fee2e2'),
-                                color: claim.Status === 'Returned' ? '#065f46' : (claim.Status === 'Sent to Vendor' ? '#92400e' : '#991b1b')
-                              }}>
-                                {claim.Status}
-                              </span>
-                            </td>
-                            <td style={{ padding: '1rem' }}>
-                              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                {claim.Status === 'Received' && (
-                                  <button
-                                    onClick={async () => {
-                                      if (!window.confirm('เปลี่ยนสถานะเป็น "ทางบริษัทได้รับของแล้ว" ใช่หรือไม่?')) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const payload = { type: 'update_claim_status', claimId: claim.ClaimID || claim['Claim ID'], status: 'Checking' };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('อัปเดตสถานะการตรวจสอบเรียบร้อย');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
-                                    className="badge badge-blue" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>🔍 ตรวจสอบ</button>
-                                )}
-                                {claim.Status === 'Checking' && (
-                                  <button
-                                    onClick={async () => {
-                                      if (!window.confirm('เปลี่ยนสถานะเป็น "ส่งสินค้าเคลมไปยังโรงงาน" ใช่หรือไม่?')) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const payload = { type: 'update_claim_status', claimId: claim.ClaimID || claim['Claim ID'], status: 'Sent to Vendor' };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('อัปเดตสถานะการส่งเคลมเรียบร้อย');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
-                                    className="badge badge-orange" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>🚛 ส่งโรงงาน</button>
-                                )}
-                                {claim.Status === 'Sent to Vendor' && (
-                                  <button
-                                    onClick={async () => {
-                                      if (!window.confirm('เปลี่ยนสถานะเป็น "รับของคืนจากโรงงานแล้ว" ใช่หรือไม่?')) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const payload = { type: 'update_claim_status', claimId: claim.ClaimID || claim['Claim ID'], status: 'Returning' };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('ได้รับสินค้าคืนจากโรงงานแล้ว');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
-                                    className="badge badge-blue" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>📦 รับคืน</button>
-                                )}
-                                {claim.Status === 'Returning' && (
-                                  <button
-                                    onClick={async () => {
-                                      if (!window.confirm('เปลี่ยนสถานะเป็น "ส่งสินค้าคืนลูกค้าเรียบร้อยแล้ว" ใช่หรือไม่?')) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const payload = { type: 'update_claim_status', claimId: claim.ClaimID || claim['Claim ID'], status: 'Returned' };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('ส่งมอบคืนลูกค้าเรียบร้อย');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
-                                    className="badge badge-green" style={{ border: 'none', cursor: 'pointer', fontSize: '0.7rem' }}>🤝 คืนลูกค้า</button>
-                                )}
-                                <button className="badge" style={{ background: '#f1f5f9', color: '#475569', border: 'none' }}>👁️ ดู</button>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+                    {claims.map((claim, idx) => {
+                      const status = claim.Status || 'Received';
+                      const statusConfig = {
+                        'Returned': { bg: '#d1fae5', text: '#065f46', label: '✅ คืนลูกค้าแล้ว', border: '#10b981' },
+                        'Returning': { bg: '#dbeafe', text: '#1e40af', label: '📦 รับคืนจากโรงงาน', border: '#3b82f6' },
+                        'Sent to Vendor': { bg: '#fef3c7', text: '#92400e', label: '🚛 ส่งโรงงานแล้ว', border: '#f59e0b' },
+                        'Checking': { bg: '#e0e7ff', text: '#4338ca', label: '🔍 กำลังตรวจสอบ', border: '#6366f1' },
+                        'Received': { bg: '#fee2e2', text: '#991b1b', label: '📥 รับของเข้าระบบ', border: '#ef4444' }
+                      };
+                      const config = statusConfig[status] || statusConfig['Received'];
+
+                      return (
+                        <div key={idx} className="card-hover" style={{
+                          background: 'white',
+                          borderRadius: '16px',
+                          border: '1px solid #e2e8f0',
+                          padding: '1.5rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '1rem',
+                          boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: THEME.primary, marginBottom: '0.25rem' }}>
+                                {claim.ClaimID || claim['Claim ID']}
                               </div>
-                            </td>
-                          </tr>
-                        ))}
-                        {claims.length === 0 && (
-                          <tr>
-                            <td colSpan="5" style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>ยังไม่มีรายการเคลมในขณะนี้</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>{claim.Customer || '-'}</h3>
+                            </div>
+                            <span style={{
+                              padding: '0.4rem 0.8rem',
+                              borderRadius: '20px',
+                              fontSize: '0.7rem',
+                              fontWeight: 800,
+                              background: config.bg,
+                              color: config.text,
+                              border: `1px solid ${config.border}`
+                            }}>
+                              {config.label}
+                            </span>
+                          </div>
+
+                          <div style={{ padding: '0.75rem', background: '#f0f9ff', borderRadius: '8px', borderLeft: `4px solid ${THEME.primary}` }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: THEME.primary }}>{claim.Equipment || claim['Equipment/Model'] || claim.Model || '-'}</div>
+                            <div style={{ fontSize: '0.8rem', color: THEME.secondary, fontWeight: 700 }}>SN: {claim.SerialNumber || claim['Serial Number']}</div>
+                          </div>
+
+                          <div style={{ fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                              <span style={{ color: '#64748b' }}>วันที่แจ้ง:</span>
+                              <span style={{ fontWeight: 600 }}>{claim.Date || claim['Claim Date']}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b' }}>อ้างอิง Job ID:</span>
+                              <span style={{ fontWeight: 700, color: THEME.primary }}>{claim.JobID || claim['Job ID'] || '-'}</span>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 'auto', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                            {status === 'Received' && (
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm('เปลี่ยนสถานะเป็น "ทางบริษัทได้รับของแล้ว" ใช่หรือไม่?')) return;
+                                  setFormLoading(true);
+                                  try {
+                                    const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Checking' } };
+                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    alert('อัปเดตสถานะการตรวจสอบเรียบร้อย');
+                                    fetchAllSheets();
+                                  } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                }}
+                                style={{ flex: 1, padding: '0.5rem', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                              >🔍 ตรวจสอบ</button>
+                            )}
+                            {status === 'Checking' && (
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm('เปลี่ยนสถานะเป็น "ส่งสินค้าเคลมไปยังโรงงาน" ใช่หรือไม่?')) return;
+                                  setFormLoading(true);
+                                  try {
+                                    const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Sent to Vendor' } };
+                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    alert('อัปเดตสถานะการส่งเคลมเรียบร้อย');
+                                    fetchAllSheets();
+                                  } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                }}
+                                style={{ flex: 1, padding: '0.5rem', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                              >🚛 ส่งโรงงาน</button>
+                            )}
+                            {status === 'Sent to Vendor' && (
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm('เปลี่ยนสถานะเป็น "รับของคืนจากโรงงานแล้ว" ใช่หรือไม่?')) return;
+                                  setFormLoading(true);
+                                  try {
+                                    const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Returning' } };
+                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    alert('ได้รับสินค้าคืนจากโรงงานแล้ว');
+                                    fetchAllSheets();
+                                  } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                }}
+                                style={{ flex: 1, padding: '0.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                              >📦 รับคืน</button>
+                            )}
+                            {status === 'Returning' && (
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm('เปลี่ยนสถานะเป็น "ส่งสินค้าคืนลูกค้าเรียบร้อยแล้ว" ใช่หรือไม่?')) return;
+                                  setFormLoading(true);
+                                  try {
+                                    const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Returned' } };
+                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    alert('ส่งมอบคืนลูกค้าเรียบร้อย');
+                                    fetchAllSheets();
+                                  } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
+                                }}
+                                style={{ flex: 1, padding: '0.5rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                              >🤝 คืนลูกค้า</button>
+                            )}
+                            <button style={{ padding: '0.5rem', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>👁️</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {claims.length === 0 && (
+                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: '#94a3b8', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>ยังไม่มีรายการเคลมในขณะนี้</div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -3127,36 +3290,42 @@ const App = () => {
                           const sn = serialsToProcess[i];
                           setUploadProgress({ current: i + 1, total: serialsToProcess.length });
 
-                          // Map payload with original keys + header-matching keys for maximum compatibility
-                          const payload = {
-                            type: manageMode,
-                            // Original keys (likely what the GAS script expects)
-                            date: formData.date,
-                            productId: formData.productId,
-                            serial: sn,
-                            qty: noSerial ? formData.qty : 1,
-                            person: formData.person,
-                            refNumber: formData.refNumber,
-                            remark: formData.remark,
-                            entity: formData.entity,
-                            projectType: formData.projectType,
-                            project: formData.project,
-                            model: modelName,
+                          // 🟢 FIXED: Using Array-based payload for 100% Reliable Column Mapping
+                          // These values must match the column order in your Google Sheet exactly.
+                          let values = [];
 
-                            // Header-matching keys (for potential dynamic scripts)
-                            'Date': formData.date.split('-').reverse().join('/'),
-                            'Product ID': formData.productId,
-                            'Model': modelName,
-                            'Serial Number': sn,
-                            'Quantity': noSerial ? formData.qty : 1,
-                            'Person': formData.person,
-                            'Ref No.': formData.refNumber,
-                            'Remark': formData.remark,
-                            'Entity': formData.entity,
-                            'Project Type': formData.projectType,
-                            'Project Name ': formData.project,
-                            'Status': manageMode === 'in' ? '' : undefined
-                          };
+                          if (manageMode === 'in') {
+                            // Column Order: Date, Product ID, Model, Serial Number, Quantity, Entity, Ref No., Person, Status, Remark
+                            values = [
+                              formData.date.split('-').reverse().join('/'),
+                              formData.productId,
+                              modelName,
+                              sn,
+                              noSerial ? formData.qty : 1,
+                              formData.entity,
+                              formData.refNumber,
+                              formData.person,
+                              '', // Status (empty for now)
+                              formData.remark
+                            ];
+                          } else {
+                            // Column Order: Date, Product ID, Model, Serial Number, Quantity, Project Type, Project Name , Ref No., Person, Remark
+                            values = [
+                              formData.date.split('-').reverse().join('/'),
+                              formData.productId,
+                              modelName,
+                              sn,
+                              noSerial ? formData.qty : 1,
+                              formData.projectType,
+                              formData.project,
+                              formData.refNumber,
+                              formData.person,
+                              formData.remark
+                            ];
+                          }
+
+                          // Send type and values array for the GAS script to process
+                          const payload = { type: manageMode, values };
 
                           await fetch(GAS_API_URL, {
                             method: 'POST',
@@ -3167,7 +3336,7 @@ const App = () => {
                         }
                         setFormStatus({ type: 'success', message: 'Recorded successfully!' });
                         addActivityLog('Stock Transaction', `${manageMode === 'in' ? 'รับเข้า' : 'เบิกออก'}: ${formData.refNumber} (${serialsToProcess.length} รายการ)`);
-                        setTimeout(() => window.location.reload(), 2000);
+                        fetchAllSheets();
                       } catch (error) {
                         setFormStatus({ type: 'error', message: 'Error: ' + error.toString() });
                       } finally { setFormLoading(false); }
@@ -3208,49 +3377,76 @@ const App = () => {
               <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.25rem' }}>รายชื่อลูกค้า ({customers.length})</h2>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem' }}>รายชื่อลูกค้า ({filteredCustomers.length})</h2>
                   </div>
 
                   <div className="grid-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                    {customers.map((c, i) => (
-                      <div key={i} className="card" style={{ padding: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '12px', background: 'white' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: '1.1rem', color: THEME.primary }}>{c['Customer Name']}</div>
-                            <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{c['Company'] || 'บุคคลธรรมดา'}</div>
+                    {filteredCustomers.map((c, i) => {
+                      const custType = c['Type'] || 'Retail';
+                      let typeColor = '#64748b'; // Default Retail
+                      if (custType === 'EPC') typeColor = '#2563eb';
+                      if (custType === 'PPA') typeColor = '#10b981';
+                      if (custType === 'Wholesale') typeColor = '#8b5cf6';
+
+                      return (
+                        <div key={i} className="card" style={{ padding: 0, border: '1px solid #e2e8f0', borderRadius: '12px', background: 'white', overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'transform 0.2s', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                          <div style={{ padding: '1rem', borderBottom: '1px solid #f1f5f9', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', letterSpacing: '0.05em' }}>
+                              #{c['Customer ID'] || 'ID-NEW'}
+                            </div>
+                            <span style={{
+                              fontSize: '0.65rem',
+                              fontWeight: 900,
+                              padding: '0.25rem 0.6rem',
+                              borderRadius: '20px',
+                              background: `${typeColor}15`,
+                              color: typeColor,
+                              border: `1px solid ${typeColor}30`
+                            }}>
+                              {custType.toUpperCase()}
+                            </span>
                           </div>
-                          <span className={`badge ${c['Type'] === 'Dealer' ? 'status-active' : 'status-pending'}`} style={{ fontSize: '0.7rem' }}>
-                            {c['Type'] === 'Dealer' ? 'DEALER' : 'RETAIL'}
-                          </span>
-                        </div>
-                        <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span>📞</span> {c['Phone'] || '-'}
+
+                          <div style={{ padding: '1.25rem', flex: 1 }}>
+                            <div style={{ fontWeight: 800, fontSize: '1.15rem', color: THEME.primary, marginBottom: '0.25rem' }}>{c['Customer Name']}</div>
+                            <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem' }}>
+                              🏢 {c['Company'] || 'ทั่วไป / บุคคลธรรมดา'}
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '0.6rem', fontSize: '0.85rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                <span style={{ opacity: 0.6, fontSize: '1rem' }}>📞</span>
+                                <div style={{ color: '#334155', fontWeight: 600 }}>{c['Phone'] || '-'}</div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                                <span style={{ opacity: 0.6, fontSize: '1rem' }}>📍</span>
+                                <div style={{ color: '#475569', lineHeight: 1.4, fontSize: '0.8rem' }}>
+                                  {getValueResilient(c, 'address') || '-'}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span>📍</span> <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getValueResilient(c, 'address') || '-'}</span>
+
+                          <div style={{ padding: '1rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '0.5rem' }}>
+                            <button
+                              style={{ flex: 1, padding: '0.5rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
+                              onClick={() => setViewingHistory(c)}
+                            >
+                              📂 ดูประวัติ
+                            </button>
+                            <button
+                              style={{ flex: 1, padding: '0.5rem', background: THEME.secondary, color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                              onClick={() => {
+                                setEditingCustomer(c);
+                                document.querySelector('form').scrollIntoView({ behavior: 'smooth' });
+                              }}
+                            >
+                              ✏️ แก้ไข
+                            </button>
                           </div>
                         </div>
-                        <div style={{ marginTop: '1.25rem', display: 'flex', gap: '0.5rem' }}>
-                          <button
-                            style={{ flex: 1, padding: '0.4rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                            onClick={() => setViewingHistory(c)}
-                          >
-                            ดูประวัติ
-                          </button>
-                          <button
-                            style={{ flex: 1, padding: '0.4rem', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600 }}
-                            onClick={() => {
-                              setEditingCustomer(c);
-                              // Scroll to form (simple implementation)
-                              document.querySelector('form').scrollIntoView({ behavior: 'smooth' });
-                            }}
-                          >
-                            แก้ไข
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {customers.length === 0 && (
                       <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', background: '#f8fafc', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
                         <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>👥</div>
@@ -3354,25 +3550,29 @@ const App = () => {
                       const isEdit = !!editingCustomer;
                       const customerId = isEdit ? (editingCustomer['Customer ID'] || editingCustomer.id) : ('CUST-' + Date.now());
 
-                      const customerData = {
-                        type: isEdit ? 'edit_customer' : 'add_customer',
-                        // Primary Keys (expected by some script versions)
-                        id: customerId,
-                        name: form.name.value,
-                        company: form.company.value,
-                        phone: form.phone.value,
-                        email: '', // Pivot column to fix shifting
-                        address: form.address.value,
-                        customerType: form.custType.value,
-                        taxId: form.taxId.value,
-                        // Header Keys (mapping to spreadsheet headers)
-                        'Customer ID': customerId,
-                        'Customer Name': form.name.value,
-                        'Company': form.company.value,
-                        'Phone': form.phone.value,
-                        'Address': form.address.value,
-                        'Type': form.custType.value,
-                        'Tax ID': form.taxId.value
+                      const payload = isEdit ? {
+                        type: 'edit_customer',
+                        idColumn: 'Customer ID',
+                        idValue: customerId,
+                        updates: {
+                          'Customer Name': form.name.value,
+                          'Company': form.company.value,
+                          'Phone': form.phone.value,
+                          'Address': form.address.value,
+                          'Type': form.custType.value,
+                          'Tax ID': form.taxId.value
+                        }
+                      } : {
+                        type: 'add_customer',
+                        values: [
+                          customerId,
+                          form.name.value,
+                          form.company.value,
+                          form.phone.value,
+                          form.address.value,
+                          form.custType.value,
+                          form.taxId.value
+                        ]
                       };
 
                       setFormLoading(true);
@@ -3380,11 +3580,12 @@ const App = () => {
                         await fetch(GAS_API_URL, {
                           method: 'POST',
                           mode: 'no-cors',
-                          body: JSON.stringify(customerData)
+                          body: JSON.stringify(payload)
                         });
                         alert(isEdit ? 'แก้ไขข้อมูลลูกค้าเรียบร้อยแล้ว' : 'บันทึกข้อมูลลูกค้าเรียบร้อยแล้ว');
-                        await addActivityLog('CRM', isEdit ? `แก้ไขลูกค้า: ${customerData.name}` : `เพิ่มลูกค้าใหม่: ${customerData.name}`);
-                        window.location.reload();
+                        await addActivityLog('CRM', isEdit ? `แก้ไขลูกค้า: ${form.name.value}` : `เพิ่มลูกค้าใหม่: ${form.name.value}`);
+                        fetchAllSheets();
+                        setEditingCustomer(null);
                       } catch (err) {
                         alert('เกิดข้อผิดพลาดในการบันทึก');
                       } finally {
@@ -3445,9 +3646,10 @@ const App = () => {
                             style={{ width: '100%' }}
                             defaultValue={editingCustomer ? editingCustomer['Type'] : 'Retail'}
                           >
-                            <option value="Retail">บุคคลธรรมดา</option>
-                            <option value="Dealer">ร้านค้า / Dealer</option>
-                            <option value="Corporate">นิติบุคคล</option>
+                            <option value="Retail">Retail (บุคคลธรรมดา)</option>
+                            <option value="EPC">EPC (โครงการ/ผู้รับเหมา)</option>
+                            <option value="PPA">PPA (ผู้ขายไฟ)</option>
+                            <option value="Wholesale">Wholesale (ราคาส่ง)</option>
                           </select>
                         </div>
                         <div>
@@ -4243,23 +4445,26 @@ const App = () => {
                           const soId = 'REQ-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
                           const payload = {
                             type: 'add_sales_order',
-                            id: soId,
-                            date: new Date().toISOString().split('T')[0],
-                            customerId: selectedSoCustomer['Customer ID'],
-                            projectName: soProjectName,
-                            items: soItems,
-                            subtotal: soSubtotal,
-                            grandTotal: soSubtotal,
-                            qtRef: soQtRef,
-                            qtLink: soQtLink,
-                            status: 'จองสินค้า'
+                            values: [
+                              soId,
+                              new Date().toISOString().split('T')[0],
+                              selectedSoCustomer['Customer ID'],
+                              selectedSoCustomer['Customer Name'],
+                              soProjectName,
+                              JSON.stringify(soItems),
+                              soItems.reduce((sum, item) => sum + parseFloat(item.qty || 0), 0),
+                              soSubtotal,
+                              'จองสินค้า',
+                              soQtRef,
+                              soQtLink
+                            ]
                           };
 
                           setFormLoading(true);
                           try {
                             await fetch(GAS_API_URL, {
                               method: 'POST',
-
+                              mode: 'no-cors',
                               body: JSON.stringify(payload)
                             });
                             alert('บันทึกใบเบิกและจองสต๊อกสำเร็จ!');
@@ -4364,11 +4569,16 @@ const App = () => {
                                   style={{ border: 'none', cursor: 'pointer' }}
                                   onClick={async () => {
                                     if (!window.confirm('คุณต้องการยกเลิกการเบิก/จองนี้ใช่หรือไม่? คืนสต๊อกพร้อมขาย?')) return;
-                                    const payload = { type: 'edit_sales_order_status', id: so['SO ID'], status: 'ยกเลิก' };
+                                    const payload = {
+                                      type: 'edit_sales_order_status',
+                                      idColumn: 'SO ID',
+                                      idValue: so['SO ID'],
+                                      updates: { 'Status': 'ยกเลิก' }
+                                    };
                                     try {
                                       await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
                                       alert('ยกเลิกรายการแล้ว');
-                                      window.location.reload();
+                                      fetchAllSheets();
                                     } catch (e) { alert('ผิดพลาด'); }
                                   }}
                                 >
