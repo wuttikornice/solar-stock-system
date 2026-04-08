@@ -407,9 +407,13 @@ const App = () => {
 
   useEffect(() => {
     fetchAllSheets();
+    if (isLoggedIn && currentUser) {
+      addActivityLog('App Opened', `เข้าใช้งานระบบ (Auto-login)`, currentUser);
+    }
   }, []);
 
-  const addActivityLog = async (action, details = '') => {
+  const addActivityLog = async (action, details = '', userOverride = null) => {
+    const logUser = userOverride || currentUser;
     try {
       await fetch(GAS_API_URL, {
         method: 'POST',
@@ -417,7 +421,7 @@ const App = () => {
         body: JSON.stringify({
           type: 'log',
           timestamp: new Date().toISOString(),
-          username: currentUser?.Username || 'guest',
+          username: logUser?.Username || logUser?.Name || 'guest',
           action: action,
           details: details
         })
@@ -445,7 +449,7 @@ const App = () => {
       localStorage.setItem('isLoggedIn', 'true');
       localStorage.setItem('currentUser', JSON.stringify(user));
       setFormData(prev => ({ ...prev, person: user.Name }));
-      addActivityLog('Login', `เข้าสู่ระบบสำเร็จ (${user.Role})`);
+      addActivityLog('Login', `เข้าสู่ระบบสำเร็จ (${user.Role})`, user);
     } else {
       setAuthError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
       addActivityLog('Login Failed', `พยายามเข้าใช้งานด้วยชื่อ: ${loginData.username}`);
