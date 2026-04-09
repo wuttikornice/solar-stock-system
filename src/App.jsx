@@ -62,6 +62,8 @@ const App = () => {
   const [soQtRef, setSoQtRef] = useState('');
   const [soQtLink, setSoQtLink] = useState('');
   const [soItems, setSoItems] = useState([]);
+  const [editingSo, setEditingSo] = useState(null);
+
 
   // Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('isLoggedIn') === 'true');
@@ -199,17 +201,25 @@ const App = () => {
   const getValueResilient = (obj, searchKey) => {
     if (!obj || typeof obj !== 'object') return '';
     const keys = Object.keys(obj);
-    const values = Object.values(obj);
+    let values = [];
+    Object.entries(obj).forEach(([k, v]) => {
+      if (k === '__parsed_extra' && Array.isArray(v)) {
+        values.push(...v);
+      } else {
+        values.push(v);
+      }
+    });
     const sTarget = searchKey.toLowerCase().trim();
 
     // Content-Based Detection (Highest Priority)
     const findByContent = (regex, checkArray = false) => {
-      const entry = Object.entries(obj).find(([k, v]) => {
+      // Search in regular values and unfolded values (from __parsed_extra)
+      const found = values.find(v => {
         if (!v) return false;
         if (checkArray && Array.isArray(v)) return true;
         return regex.test(v.toString());
       });
-      return entry ? entry[1] : null;
+      return found !== undefined ? found : null;
     };
 
     // Fuzzy Key-Based Detection (Second Priority)
@@ -220,40 +230,66 @@ const App = () => {
 
     let result = null;
 
-    if (sTarget === 'soid') result = findByContent(/^REQ-\d+/i) || findByKey(['SO ID', 'REQ ID', 'id', 'เลขที่']);
-    if (sTarget === 'items') result = findByContent(/^\[\s*\{/i, true) || findByKey(['Items', 'Payment Status', 'รายการ', 'Item List']);
-    if (sTarget === 'customerid') result = findByContent(/^CUST-/i) || findByKey(['Customer ID', 'Customer', 'รหัสลูกค้า']);
-    if (sTarget === 'qtref') result = findByContent(/^QT-\d+/i) || findByKey(['QT Ref', 'อ้างอิง QT']);
+    if (sTarget === 'soid') result = findByContent(/^REQ-\d+/i) || findByKey(['SO ID', 'REQ ID', 'id']);
+    if (sTarget === 'items') result = findByContent(/^\[\s*\{/i, true) || findByKey(['Items', 'Linked_DO_Ref', 'รายการ', 'Item List']);
+    if (sTarget === 'customerid') result = findByContent(/^CUST-\d+/i) || findByKey(['Customer ID', 'รหัสลูกค้า', 'Date']);
+    if (sTarget === 'customername') result = findByKey(['Customer Name', 'ชื่อลูกค้า', 'Delivery Status', 'ชื่อบริษัท']);
+    if (sTarget === 'qtref') result = findByContent(/^CMI\d+/i) || findByKey(['QT Ref', 'อ้างอิง', 'อ้างอิง QT', 'QT IDRef']);
     if (sTarget === 'status') result = findByContent(/^(จอง|เบิก|ยกเลิก|Pending|Reserved|Completed)/i) || findByKey(['Status', 'สถานะ']);
 
-    // Financial & Detailed Aliases
-    if (sTarget === 'subtotal') result = findByKey(['Subtotal', 'Sub Total', 'ยอดรวมเบื้องต้น', 'ยอดก่อนภาษี', 'Gross Total', 'Price before VAT']);
-    if (sTarget === 'discount') result = findByKey(['Discount', 'ส่วนลด']);
-    if (sTarget === 'vat') result = findByKey(['VAT', 'ภาษี', 'VAT 7%', 'ภาษีมูลค่าเพิ่ม']);
-    if (sTarget === 'total' || sTarget === 'grandtotal') result = findByKey(['Grand Total', 'Total', 'ยอดสุทธิ', 'ยอดรวมสุทธิ', 'รวมเงินทั้งสิ้น', 'Amount']);
-    if (sTarget === 'date' && result === null) result = findByContent(/^\d{1,2}\/\d{1,2}\/\d{4}/) || findByKey(['QT IDRef', 'Date', 'วันที่', 'Document Date']);
-    if (sTarget === 'salesphone') result = findByKey(['Sales Phone', 'เบอร์โทรผู้ขาย', 'Sales Tel']);
-    if (sTarget === 'projectname' && result === null) result = findByKey(['Project', 'โครงการ', 'Project Name']);
-    if (sTarget === 'address' && !result) result = findByKey(['Address', 'ที่อยู่', 'ที่อยู่ส่งของ']);
-    if (sTarget === 'resolution') result = findByKey(['Resolution/Problems', 'Resolution', 'Problems', 'ผลการแก้ไข', 'รายละเอียดการซ่อม']);
+    if (sTarget === 'subtotal') result = findByKey(['Subtotal', 'Sub Total', 'Gross Total', '_1']);
+    if (sTarget === 'total' || sTarget === 'grandtotal') result = findByKey(['Grand Total', 'Total', 'ยอดรวมสุทธิ', '_1']);
+    if (sTarget === 'totalquantity') result = findByKey(['จำนวนอุปกรณ์รวม (ชิ้น)', 'จำนวนรวม', 'Total Quantity', 'Quantity']);
+    if (sTarget === 'date' && result === null) result = findByContent(/^\d{4}-\d{2}-\d{2}/) || findByContent(/^\d{1,2}\/\d{1,2}\/\d{4}/) || findByKey(['Date', 'วันที่', 'Document Date']);
+    if (sTarget === 'projectname' && result === null) result = findByKey(['Project', 'โครงการ', ',']);
 
-    if (result) return result;
+    if (result !== null && result !== undefined) return result;
 
-    // Last Resort: Fixed Index Fallback
+    // Last Resort: Fixed Index Fallback for Requisition Structure
     switch (sTarget) {
       case 'soid': return values[0] || '';
-      case 'date': return values[1] || '';
-      case 'customerid': return values[2] || '';
-      case 'projectname': return values[3] || '';
-      case 'items': return values[4] || '[]';
-      case 'grandtotal': return values[5] || 0;
-      case 'qtref': return values[7] || '';
-      case 'status': return values[8] || 'Pending';
-      case 'address': return values[9] || '';
-      case 'resolution': return values[11] || '';
+      case 'items': return findByContent(/^\[\s*\{/i, true) || values[5] || '[]';
+      case 'date': return findByContent(/^\d{4}-\d{2}-\d{2}/) || findByContent(/^\d{1,2}\/\d{1,2}\/\d{4}/) || values[2] || values[1] || '';
+      case 'customerid': return findByContent(/^CUST-\d+/i) || values[2] || '';
+      case 'customername': return values[3] || '';
+      case 'projectname': return values[4] || values[3] || '';
+      case 'totalquantity': return values[6] || 0;
+      case 'status': return values[7] || 'Pending'; // Shifted from [8]
+      case 'qtref': return findByContent(/^CMI\d+/i) || values[8] || values[1] || ''; // Shifted from [9]
       default: return '';
     }
   };
+  
+   const findSheetKey = (obj, targets) => {
+    if (!obj || typeof obj !== 'object') return targets[0];
+    const keys = Object.keys(obj);
+    
+    // 🟢 Enhanced: Add global synonyms for Requisition headers to targets
+    const enhancedTargets = [...targets];
+    if (targets.some(t => /date|วันที่/i.test(t)) && !targets.includes('QT IDRef')) {
+      enhancedTargets.push('QT IDRef');
+    }
+    if (targets.some(t => /customer name|ชื่อลูกค้า/i.test(t)) && !targets.includes('Delivery Status')) {
+      enhancedTargets.push('Delivery Status');
+    }
+    if (targets.some(t => /items|รายการ/i.test(t)) && !targets.includes('Linked_DO_Ref')) {
+      enhancedTargets.push('Linked_DO_Ref');
+    }
+    if (targets.some(t => /total|จำนวนรวม/i.test(t)) && !targets.includes('จำนวนอุปกรณ์รวม (ชิ้น)')) {
+      enhancedTargets.push('จำนวนอุปกรณ์รวม (ชิ้น)');
+    }
+    if (targets.some(t => /date|วันที่/i.test(t)) && !targets.includes('QT IDRef')) {
+      enhancedTargets.push('QT IDRef');
+    }
+
+    const foundKey = keys.find(k => enhancedTargets.some(t => {
+      const lowK = k.toLowerCase().trim();
+      const lowT = t.toLowerCase().trim();
+      return lowK === lowT || lowK.includes(lowT);
+    }));
+    return foundKey || targets[0];
+  };
+
 
   const parseCSVNumber = (val) => {
     if (val === undefined || val === null || val === '') return 0;
@@ -361,14 +397,19 @@ const App = () => {
   const fetchAllSheets = async () => {
     try {
       const fetchSheet = async (gid) => {
-        const response = await fetch(`${BASE_URL}&gid=${gid}`);
+        const response = await fetch(`${BASE_URL}&gid=${gid}&_=${new Date().getTime()}`, { cache: 'no-store' });
         const csvText = await response.text();
         return new Promise((resolve) => {
           Papa.parse(csvText, {
             header: true,
             skipEmptyLines: true,
             transformHeader: (header) => header.trim(),
-            complete: (results) => resolve(results.data)
+            complete: (results) => {
+              if (gid === activeGIDs.SALES_ORDERS && results.data.length > 0) {
+                console.log("📑 [COLUMNS DETECTED]:", results.meta.fields.join(' | '));
+              }
+              resolve(results.data);
+            }
           });
         });
       };
@@ -387,7 +428,6 @@ const App = () => {
       if (activeGIDs.QUOTATIONS) fetchSheet(activeGIDs.QUOTATIONS).then(setQuotations).catch(() => { });
       if (activeGIDs.SALES_PACKAGES) fetchSheet(activeGIDs.SALES_PACKAGES).then(setSalesPackages).catch(() => { });
       if (activeGIDs.SALES_ORDERS) fetchSheet(activeGIDs.SALES_ORDERS).then(data => {
-        if (data && data.length > 0) console.log("REQ Data Sample:", data[0]);
         setSalesOrders(Array.isArray(data) ? data : []);
       }).catch(() => { });
 
@@ -420,10 +460,16 @@ const App = () => {
         mode: 'no-cors',
         body: JSON.stringify({
           type: 'log',
-          timestamp: new Date().toISOString(),
+          timestamp: new Date().toLocaleString('th-TH'),
           username: logUser?.Username || logUser?.Name || 'guest',
           action: action,
-          details: details
+          details: details,
+          values: [
+            new Date().toLocaleString('th-TH'),
+            logUser?.Username || logUser?.Name || 'guest',
+            action,
+            details
+          ]
         })
       });
     } catch (err) {
@@ -646,7 +692,7 @@ const App = () => {
   };
 
   const soSubtotal = useMemo(() => {
-    return soItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || 1)), 0);
+    return soItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || item.Quantity || 1)), 0);
   }, [soItems]);
 
   const reconciledStock = useMemo(() => {
@@ -701,10 +747,10 @@ const App = () => {
     const reserves = {};
     salesOrders.forEach(so => {
       // Treat 'จองสินค้า', 'Reserved', 'Pending' as reserved
-      const status = String(so.Status || '').toLowerCase();
+      const status = String(getValueResilient(so, 'status') || '').toLowerCase();
       if (status === 'จองสินค้า' || status === 'reserved' || status === 'pending' || status === 'confirmed') {
         try {
-          const items = JSON.parse(so.Items || '[]');
+          const items = safeJSONParse(getValueResilient(so, 'items'));
           items.forEach(item => {
             const pid = item.productId || item.id;
             if (pid) {
@@ -3800,9 +3846,9 @@ const App = () => {
                             defaultValue=""
                           >
                             <option value="" disabled>-- เลือกสินค้าเพื่อเพิ่มในรายการ --</option>
-                            {products.map((p, idx) => (
+                            {stockData.map((p, idx) => (
                               <option key={idx} value={p['Product ID']}>
-                                {p.Brand ? `[${p.Brand}] ` : ''}{p.Model || p.ProductName} {p['Quantity'] ? `(คงเหลือ: ${p['Quantity']})` : ''}
+                                {p.Brand ? `[${p.Brand}] ` : ''}{p.Model || p.ProductName} (พร้อมเบิกขาย: {p.AvailableBalance} | จองแล้ว: {p.ReservedQuantity})
                               </option>
                             ))}
                           </select>
@@ -3866,7 +3912,7 @@ const App = () => {
                               <td style={{ padding: '0.75rem', borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }}>
                                 <input
                                   type="number"
-                                  value={item.qty}
+                                  value={item.qty || item.Quantity || 0}
                                   onChange={(e) => updateQtItem(item.id, 'qty', Number(e.target.value))}
                                   style={{ width: '60px', padding: '0.4rem', border: '1px solid #e2e8f0', borderRadius: '6px', textAlign: 'center' }}
                                 />
@@ -4208,7 +4254,6 @@ const App = () => {
                         </table>
                       </div>
 
-                      {/* Footer: Terms & Payment */}
                       <div style={{ marginTop: '1.5rem', display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem' }}>
                         <div style={{ fontSize: '0.8rem', lineHeight: '1.6', border: '1px solid #e2e8f0', padding: '1rem', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                           <div style={{ borderBottom: '1px solid #1e3a8a', fontWeight: 800, color: '#1e3a8a', marginBottom: '0.5rem', paddingBottom: '0.2rem' }}>เงื่อนไขการชำระเงินและการรับประกัน (Terms & Conditions)</div>
@@ -4279,7 +4324,24 @@ const App = () => {
                 <div className="quotation-container">
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '2rem' }}>
                     <div className="card" style={{ padding: '2rem' }}>
-                      <h2 style={{ marginBottom: '1.5rem' }}>รายการเบิก/จองอุปกรณ์สำหรับงานติดตั้ง</h2>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h2 style={{ margin: 0 }}>{editingSo ? `แก้ไขใบเบิก/จองอุปกรณ์ (${getValueResilient(editingSo, 'soid')})` : 'รายการเบิก/จองอุปกรณ์สำหรับงานติดตั้ง'}</h2>
+                        {editingSo && (
+                          <button
+                            onClick={() => {
+                              setEditingSo(null);
+                              setSoItems([]);
+                              setSoProjectName('');
+                              setSoQtRef('');
+                              setSoQtLink('');
+                              setSelectedSoCustomer(null);
+                            }}
+                            style={{ padding: '0.4rem 0.8rem', background: '#e2e8f0', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}
+                          >
+                            ❌ ยกเลิกหน่วยแก้ไข
+                          </button>
+                        )}
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem', background: '#f8fafc', padding: '1.5rem', borderRadius: '12px' }}>
                         <div>
                           <label style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>เลือกลูกค้า</label>
@@ -4322,17 +4384,7 @@ const App = () => {
                             onChange={(e) => setSoQtRef(e.target.value)}
                           />
                         </div>
-                        <div style={{ gridColumn: 'span 3' }}>
-                          <label style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>แนบลิงก์ใบเสนอราคา (External URL)</label>
-                          <input
-                            type="url"
-                            className="search-input"
-                            style={{ width: '100%', padding: '0.75rem' }}
-                            placeholder="https://drive.google.com/..."
-                            value={soQtLink || ''} // Assuming state needs to be added, logic below
-                            onChange={(e) => setSoQtLink(e.target.value)}
-                          />
-                        </div>
+
                       </div>
                     </div>
 
@@ -4343,8 +4395,7 @@ const App = () => {
                           <tr style={{ textAlign: 'left', fontSize: '0.85rem', color: '#64748b' }}>
                             <th style={{ padding: '0.5rem' }}>สินค้า</th>
                             <th style={{ padding: '0.5rem' }}>จำนวน</th>
-                            <th style={{ padding: '0.5rem' }}>ราคาประเมิน</th>
-                            <th style={{ padding: '0.5rem' }}>รวม</th>
+
                             <th style={{ padding: '0.5rem' }}></th>
                           </tr>
                         </thead>
@@ -4358,22 +4409,12 @@ const App = () => {
                               <td style={{ padding: '1rem', borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }}>
                                 <input
                                   type="number"
-                                  value={item.qty}
+                                  value={item.qty || item.Quantity || 0}
                                   onChange={(e) => updateSoItem(item.id, 'qty', Number(e.target.value))}
                                   style={{ width: '60px', padding: '0.4rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}
                                 />
                               </td>
-                              <td style={{ padding: '1rem', borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }}>
-                                <input
-                                  type="number"
-                                  value={item.price}
-                                  onChange={(e) => updateSoItem(item.id, 'price', Number(e.target.value))}
-                                  style={{ width: '100px', padding: '0.4rem', border: '1px solid #e2e8f0', borderRadius: '6px' }}
-                                />
-                              </td>
-                              <td style={{ padding: '1rem', borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}>
-                                ฿{(item.price * item.qty).toLocaleString()}
-                              </td>
+
                               <td style={{ padding: '1rem', borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', borderRight: '1px solid #f1f5f9', borderRadius: '0 8px 8px 0' }}>
                                 <button onClick={() => removeSoItem(item.id)} style={{ color: '#ef4444', border: 'none', background: 'transparent', cursor: 'pointer' }}>✕</button>
                               </td>
@@ -4417,7 +4458,7 @@ const App = () => {
                         </select>
                       </div>
                       <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {products
+                        {stockData
                           .filter(p => (soFilterCategory === 'All' || p.Category === soFilterCategory) && (soFilterBrand === 'All' || p.Brand === soFilterBrand))
                           .map(p => (
                             <div
@@ -4427,27 +4468,46 @@ const App = () => {
                               style={{ border: '1px solid #f1f5f9', background: 'white', color: THEME.primary, cursor: 'pointer', padding: '0.5rem', borderRadius: '6px' }}
                             >
                               <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{p.Model}</div>
-                              <div style={{ fontSize: '0.75rem', color: THEME.secondary }}>คงเหลือ: {p.CalculatedBalance} | รหัส: {p['Product ID']}</div>
+                              <div style={{ fontSize: '0.75rem', color: THEME.secondary }}>พร้อมเบิก: {p.AvailableBalance} (จองแล้ว: {p.ReservedQuantity}) | รหัส: {p['Product ID']}</div>
                             </div>
                           ))}
                       </div>
                     </div>
 
                     <div className="card" style={{ padding: '1.5rem', background: THEME.primary, color: 'white' }}>
-                      <h3 style={{ marginBottom: '1.5rem' }}>ยืนยันรายการจอง</h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.25rem', fontWeight: 800, marginBottom: '1.5rem' }}>
-                        <span>ยอดประเมิน:</span>
-                        <span style={{ color: THEME.secondary }}>฿{soSubtotal.toLocaleString()}</span>
-                      </div>
+                      <h3 style={{ marginBottom: '1rem' }}>ยืนยันรายการจอง</h3><div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.1)', padding: '1rem', borderRadius: '8px' }}><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem' }}><span>จำนวนอุปกรณ์รวมทั้งหมด:</span><span style={{ fontWeight: 800, fontSize: '1.25rem' }}>{soItems.reduce((sum, item) => sum + Number(item.qty || item.Quantity || 0), 0)} ชิ้น</span></div></div>
+
                       <button
-                        style={{ width: '100%', padding: '1rem', background: 'white', color: THEME.primary, border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ width: '100%', padding: '1rem', background: editingSo ? '#f59e0b' : 'white', color: editingSo ? 'white' : THEME.primary, border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
                         disabled={formLoading}
                         onClick={async () => {
                           if (!selectedSoCustomer) return alert('กรุณาเลือกลูกค้า');
                           if (soItems.length === 0) return alert('กรุณาเพิ่มสินค้า');
 
-                          const soId = 'REQ-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-                          const payload = {
+                          const isEdit = !!editingSo;
+                          const soId = isEdit ? getValueResilient(editingSo, 'soid') : ('REQ-' + new Date().getFullYear() + '-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0'));
+
+                          const totalQty = soItems.reduce((sum, item) => sum + Number(item.qty || item.Quantity || 0), 0);
+                          const itemsJSON = JSON.stringify(soItems);
+
+                          const payload = isEdit ? {
+                            type: 'edit_sales_order_status',
+                            // 🔑 Hybrid Structure for compatibility
+                            id: soId, 
+                            idColumn: findSheetKey(editingSo, ['SO ID', 'REQ ID', 'เลขที่ใบเบิก']),
+                            idValue: soId,
+                            updates: {
+                               [findSheetKey(editingSo, ['Date', 'QT IDRef', 'วันที่'])]: new Date().toISOString().split('T')[0],
+                               [findSheetKey(editingSo, ['Customer ID', 'รหัสลูกค้า', 'Date'])]: selectedSoCustomer['Customer ID'],
+                               [findSheetKey(editingSo, ['Customer Name', 'ชื่อลูกค้า', 'Delivery Status'])]: selectedSoCustomer['Customer Name'],
+                               [findSheetKey(editingSo, ['Project Name', 'ชื่อโครงการ', ','])]: soProjectName,
+                               [findSheetKey(editingSo, ['Items', 'รายการ', 'Item List', 'Linked_DO_Ref'])]: itemsJSON,
+                               [findSheetKey(editingSo, ['Total Quantity', 'จำนวนรวม', 'จำนวนอุปกรณ์รวม (ชิ้น)'])]: totalQty,
+                               [findSheetKey(editingSo, ['Status', 'สถานะ'])]: isEdit ? (getValueResilient(editingSo, 'status') || 'จองสินค้า') : 'จองสินค้า',
+                               [findSheetKey(editingSo, ['QT Ref', 'อ้างอิง QT', 'QT'])]: soQtRef,
+                               [findSheetKey(editingSo, ['QT Link', 'ลิงก์ QT'])]: soQtLink
+                             }
+                          } : {
                             type: 'add_sales_order',
                             values: [
                               soId,
@@ -4455,14 +4515,15 @@ const App = () => {
                               selectedSoCustomer['Customer ID'],
                               selectedSoCustomer['Customer Name'],
                               soProjectName,
-                              JSON.stringify(soItems),
-                              soItems.reduce((sum, item) => sum + parseFloat(item.qty || 0), 0),
-                              soSubtotal,
+                              itemsJSON,
+                              totalQty,
                               'จองสินค้า',
                               soQtRef,
                               soQtLink
                             ]
                           };
+
+                          console.log("🚀 [SENDING PAYLOAD]:", payload);
 
                           setFormLoading(true);
                           try {
@@ -4471,14 +4532,15 @@ const App = () => {
                               mode: 'no-cors',
                               body: JSON.stringify(payload)
                             });
-                            alert('บันทึกใบเบิกและจองสต๊อกสำเร็จ!');
+                            alert(isEdit ? 'แก้ไขใบเบิกเรียบร้อยแล้ว!' : 'บันทึกใบเบิกและจองสต๊อกสำเร็จ!');
                             setSoItems([]);
                             setSoProjectName('');
                             setSoQtRef('');
                             setSoQtLink('');
                             setSelectedSoCustomer(null);
+                            setEditingSo(null);
                             setSoSubView('history');
-                            addActivityLog('Requisition', `สร้างใบเบิก ${soId} สำหรับโครงการ: ${soProjectName} (Ref: ${soQtRef || '-'})`);
+                            addActivityLog('Requisition', `${isEdit ? 'แก้ไข' : 'สร้าง'}ใบเบิก ${soId} สำหรับโครงการ: ${soProjectName} (Ref: ${soQtRef || '-'})`);
                             fetchAllSheets();
                           } catch (err) {
                             alert('เกิดข้อผิดพลาด: ' + err.message);
@@ -4488,7 +4550,7 @@ const App = () => {
                           }
                         }}
                       >
-                        {formLoading ? 'กำลังบันทึก...' : '💾 บันทึกใบเบิกและจองของ'}
+                        {formLoading ? 'กำลังบันทึก...' : (editingSo ? '💾 บันทึกการแก้ไขใบเบิก' : '💾 บันทึกใบเบิกและจองของ')}
                       </button>
                     </div>
                   </div>
@@ -4503,7 +4565,7 @@ const App = () => {
                           <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>วันที่</th>
                           <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>ลูกค้า / โครงการ</th>
                           <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>อ้างอิง QT</th>
-                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>ยอดรวม</th>
+                          <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>จำนวนอุปกรณ์รวม (ชิ้น)</th>
                           <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>สถานะ</th>
                           <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0' }}>จัดการ</th>
                         </tr>
@@ -4522,7 +4584,9 @@ const App = () => {
                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Project: {getValueResilient(so, 'projectname') || '-'}</div>
                               </td>
                               <td style={{ padding: '1rem', color: THEME.secondary, fontWeight: 600 }}>{getValueResilient(so, 'qtref') || '-'}</td>
-                              <td style={{ padding: '1rem', fontWeight: 700 }}>฿{parseCSVNumber(getValueResilient(so, 'grandtotal')).toLocaleString()}</td>
+                              <td style={{ padding: '1rem', fontWeight: 700, color: THEME.primary }}>
+                                {(Number(getValueResilient(so, 'totalquantity')) || safeJSONParse(getValueResilient(so, 'items')).reduce((sum, item) => sum + Number(item.qty || item.Quantity || 0), 0))} ชิ้น
+                              </td>
                               <td style={{ padding: '1rem' }}>
                                 <span
                                   style={{
@@ -4540,6 +4604,25 @@ const App = () => {
                               </td>
                               <td style={{ padding: '1rem', display: 'flex', gap: '0.5rem' }}>
                                 <button
+                                  className="badge badge-orange"
+                                  style={{ border: 'none', cursor: 'pointer', background: '#f59e0b' }}
+                                  onClick={() => {
+                                    const items = safeJSONParse(getValueResilient(so, 'items'));
+                                    const custId = getValueResilient(so, 'customerid');
+                                    const custObj = customers.find(c => String(c['Customer ID'] || '').trim() === String(custId || '').trim());
+                                    
+                                    setEditingSo(so);
+                                    setSelectedSoCustomer(custObj || { 'Customer ID': custId, 'Customer Name': getValueResilient(so, 'customername') });
+                                    setSoProjectName(getValueResilient(so, 'projectname'));
+                                    setSoItems(items.map(it => ({ ...it, qty: Number(it.qty || it.Quantity || 1) })));
+                                    setSoQtRef(getValueResilient(so, 'qtref'));
+                                    setSoQtLink(getValueResilient(so, 'qtlink'));
+                                    setSoSubView('create');
+                                  }}
+                                >
+                                  ✏️ แก้ไข
+                                </button>
+                                <button
                                   className="badge badge-blue"
                                   style={{ border: 'none', cursor: 'pointer', background: '#3b82f6' }}
                                   onClick={() => setSelectedSoForView(so)}
@@ -4550,17 +4633,17 @@ const App = () => {
                                   className="badge badge-green"
                                   style={{ border: 'none', cursor: 'pointer' }}
                                   onClick={() => {
-                                    const items = JSON.parse(so.Items || '[]');
+                                    const items = safeJSONParse(getValueResilient(so, 'items'));
                                     setRequisitionTransfer({
-                                      id: so['SO ID'],
-                                      project: so['Project Name'],
+                                      id: getValueResilient(so, 'soid'),
+                                      project: getValueResilient(so, 'projectname'),
                                       items: items
                                     });
                                     setManageMode('out');
                                     setFormData(prev => ({
                                       ...prev,
-                                      project: so['Project Name'],
-                                      refNumber: so['SO ID'],
+                                      project: getValueResilient(so, 'projectname'),
+                                      refNumber: getValueResilient(so, 'soid'),
                                       projectType: 'EPC'
                                     }));
                                     setCurrentView('manage_stock');
@@ -4573,16 +4656,34 @@ const App = () => {
                                   style={{ border: 'none', cursor: 'pointer' }}
                                   onClick={async () => {
                                     if (!window.confirm('คุณต้องการยกเลิกการเบิก/จองนี้ใช่หรือไม่? คืนสต๊อกพร้อมขาย?')) return;
+                                    const soIdVal = String(getValueResilient(so, 'soid') || '').trim();
                                     const payload = {
                                       type: 'edit_sales_order_status',
+                                      // Support for older GAS Script
+                                      id: soIdVal,
+                                      status: 'ยกเลิก',
+                                      // Support for Universal GAS Script
                                       idColumn: 'SO ID',
-                                      idValue: so['SO ID'],
-                                      updates: { 'Status': 'ยกเลิก' }
+                                      idValue: soIdVal,
+                                      updates: { 'Status': 'ยกเลิก', 'status': 'ยกเลิก' }
                                     };
                                     try {
                                       await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                      setSalesOrders(prev => prev.map(order => {
+                                        if (getValueResilient(order, 'soid') === soIdVal) {
+                                          const newOrder = { ...order, Status: 'ยกเลิก', status: 'ยกเลิก' };
+                                          // Force overwrite the old status in whichever broken key PapaParse assigned it to
+                                          Object.keys(newOrder).forEach(k => {
+                                            if (/^(จอง|เบิก|Pending|Reserved|Completed)/i.test(String(newOrder[k]))) {
+                                              newOrder[k] = 'ยกเลิก';
+                                            }
+                                          });
+                                          return newOrder;
+                                        }
+                                        return order;
+                                      }));
                                       alert('ยกเลิกรายการแล้ว');
-                                      fetchAllSheets();
+                                      setTimeout(() => fetchAllSheets(), 2000); // Give backend time to process before background sync
                                     } catch (e) { alert('ผิดพลาด'); }
                                   }}
                                 >
@@ -4643,8 +4744,7 @@ const App = () => {
                       <tr style={{ textAlign: 'left', background: '#f8fafc', color: '#64748b', fontSize: '0.85rem' }}>
                         <th style={{ padding: '1rem' }}>รายการสินค้า</th>
                         <th style={{ padding: '1rem', textAlign: 'center' }}>จำนวน</th>
-                        <th style={{ padding: '1rem', textAlign: 'right' }}>ราคา/หน่วย</th>
-                        <th style={{ padding: '1rem', textAlign: 'right' }}>รวม</th>
+
                       </tr>
                     </thead>
                     <tbody>
@@ -4658,20 +4758,14 @@ const App = () => {
                             </div>
                           </td>
                           <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 700 }}>{it.qty || it.Quantity || 0} {it.unit || 'ชิ้น'}</td>
-                          <td style={{ padding: '1rem', textAlign: 'right' }}>฿{(it.price || 0).toLocaleString()}</td>
-                          <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 700, color: THEME.secondary }}>฿{((it.price || 0) * (it.qty || it.Quantity || 0)).toLocaleString()}</td>
+
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem', padding: '1rem', background: '#f8fafc', borderRadius: '12px' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>ยอดรวมประเมินทั้งสิ้น</div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 900, color: THEME.primary }}>฿{parseCSVNumber(getValueResilient(selectedSoForView, 'grandtotal')).toLocaleString()}</div>
-                  </div>
-                </div>
+
 
                 <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center' }}>
                   <button
