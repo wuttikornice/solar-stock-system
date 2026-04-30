@@ -58,6 +58,7 @@ const App = () => {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [viewingHistory, setViewingHistory] = useState(null);
   const [viewingEquipments, setViewingEquipments] = useState(null);
+  const [editingServiceStatus, setEditingServiceStatus] = useState(null); // { ticket, nextStatus }
   const [qtItems, setQtItems] = useState([]);
   const [qtDiscount, setQtDiscount] = useState(0);
   const [qtProjectName, setQtProjectName] = useState('');
@@ -2772,20 +2773,20 @@ const App = () => {
                         </p>
                       </div>
                     ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
-                        {serviceTickets.map((ticket, idx) => {
-                          const status = ticket.Status || 'Pending';
-                          const statusConfig = {
-                            'Completed': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
-                            'เสร็จสิ้น': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
-                            'In Progress': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
-                            'กำลังดำเนินการ': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
-                            'Cancelled': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
-                            'ยกเลิก': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
-                            'Pending': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' },
-                            'รอดำเนินการ': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' }
-                          };
-                          const config = statusConfig[status] || statusConfig['Pending'];
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
+                      {serviceTickets.map((ticket, idx) => {
+                        const status = getValueResilient(ticket, 'status') || 'Pending';
+                        const statusConfig = {
+                          'Completed': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
+                          'เสร็จสิ้น': { bg: '#d1fae5', text: '#065f46', label: '✅ เสร็จสิ้น', border: '#10b981' },
+                          'In Progress': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
+                          'กำลังดำเนินการ': { bg: '#dbeafe', text: '#1e40af', label: '🔧 กำลังดำเนินการ', border: '#3b82f6' },
+                          'Cancelled': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
+                          'ยกเลิก': { bg: '#fee2e2', text: '#991b1b', label: '❌ ยกเลิก', border: '#ef4444' },
+                          'Pending': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' },
+                          'รอดำเนินการ': { bg: '#fef3c7', text: '#92400e', label: '⏳ รอดำเนินการ', border: '#f59e0b' }
+                        };
+                        const config = statusConfig[status] || statusConfig['Pending'];
 
                           return (
                             <div key={idx} className="card-hover" style={{
@@ -2845,47 +2846,15 @@ const App = () => {
                               </div>
 
                               <div style={{ marginTop: 'auto', display: 'flex', gap: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
-                                {status === 'Pending' && (
+                                {(status === 'Pending' || status === 'รอดำเนินการ') && (
                                   <button
-                                    onClick={async () => {
-                                      const res = window.prompt('ระบุรายละเอียดความคืบหน้า (Progress/Resolution):', getValueResilient(ticket, 'resolution') || '');
-                                      if (res === null) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
-                                        const payload = {
-                                          type: 'update_service_status',
-                                          idColumn: 'Ticket ID',
-                                          idValue: ticket['Ticket ID'],
-                                          updates: { 'Status': 'In Progress', [resKey]: res }
-                                        };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('อัปเดตสถานะสำเร็จ');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
+                                    onClick={() => setEditingServiceStatus({ ticket, nextStatus: 'In Progress', title: 'เริ่มดำเนินงานเซอร์วิส' })}
                                     style={{ flex: 1, padding: '0.6rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
                                   >⏳ เริ่มงาน</button>
                                 )}
-                                {status === 'In Progress' && (
+                                {(status === 'In Progress' || status === 'กำลังดำเนินการ') && (
                                   <button
-                                    onClick={async () => {
-                                      const res = window.prompt('ระบุผลการแก้ไข/ปิดงาน (Final Resolution):', getValueResilient(ticket, 'resolution') || '');
-                                      if (res === null) return;
-                                      setFormLoading(true);
-                                      try {
-                                        const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
-                                        const payload = {
-                                          type: 'update_service_status',
-                                          idColumn: 'Ticket ID',
-                                          idValue: ticket['Ticket ID'],
-                                          updates: { 'Status': 'Completed', [resKey]: res }
-                                        };
-                                        await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                        alert('ปิดงานสำเร็จ');
-                                        fetchAllSheets();
-                                      } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
-                                    }}
+                                    onClick={() => setEditingServiceStatus({ ticket, nextStatus: 'Completed', title: 'เสร็จสิ้นงานเซอร์วิส' })}
                                     style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
                                   >✅ ปิดงาน</button>
                                 )}
@@ -2913,6 +2882,69 @@ const App = () => {
                       </div>
                     )}
                   </div>
+
+                  {editingServiceStatus && (
+                    <div style={{
+                      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                      background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      zIndex: 3000, padding: '1rem', backdropFilter: 'blur(4px)'
+                    }}>
+                      <div className="card" style={{ width: '100%', maxWidth: '500px', padding: 0, overflow: 'hidden' }}>
+                        <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h3 style={{ margin: 0, fontSize: '1.1rem', color: THEME.primary }}>{editingServiceStatus.title}</h3>
+                          <button onClick={() => setEditingServiceStatus(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                        </div>
+                        <div style={{ padding: '1.5rem' }}>
+                          <div style={{ marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.25rem' }}>ลูกค้า:</div>
+                            <div style={{ fontWeight: 700 }}>{editingServiceStatus.ticket['Customer Name']}</div>
+                          </div>
+                          <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                            รายละเอียดความคืบหน้า / ผลการแก้ไข:
+                          </label>
+                          <textarea
+                            id="service-resolution-input"
+                            defaultValue={getValueResilient(editingServiceStatus.ticket, 'resolution') || ''}
+                            style={{ width: '100%', minHeight: '120px', padding: '0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'inherit' }}
+                            placeholder="พิมพ์รายละเอียดที่นี่..."
+                          />
+                          <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                            <button
+                              onClick={() => setEditingServiceStatus(null)}
+                              style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', fontWeight: 600, cursor: 'pointer' }}
+                            >ยกเลิก</button>
+                            <button
+                              disabled={formLoading}
+                              onClick={async () => {
+                                const res = document.getElementById('service-resolution-input').value;
+                                const { ticket, nextStatus } = editingServiceStatus;
+                                setFormLoading(true);
+                                try {
+                                  const idCol = Object.keys(ticket).find(k => k.toLowerCase().replace(/\s/g, '') === 'ticketid' || k.toLowerCase() === 'id' || k === 'รหัสงาน') || 'Ticket ID';
+                                  const idVal = ticket[idCol] || ticket['Ticket ID'] || ticket['id'];
+                                  const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
+                                  
+                                  const payload = {
+                                    type: 'update_service_status',
+                                    idColumn: idCol,
+                                    idValue: idVal,
+                                    updates: { 'Status': nextStatus, [resKey]: res }
+                                  };
+                                  await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                  alert('อัปเดตสถานะสำเร็จ!');
+                                  setEditingServiceStatus(null);
+                                  fetchAllSheets();
+                                } catch (e) { alert('เกิดข้อผิดพลาด'); } finally { setFormLoading(false); }
+                              }}
+                              style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: 'none', background: editingServiceStatus.nextStatus === 'Completed' ? '#10b981' : '#3b82f6', color: 'white', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              {formLoading ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : serviceSubView === 'claims' ? (
                 <div className="claims-view">
