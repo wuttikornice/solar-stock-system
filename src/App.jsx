@@ -29,6 +29,16 @@ const THEME = {
   chartColors: ['#1e3a8a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 };
 
+const INSTALLATION_TEAMS = [
+  'บ.อาร์ 3 โซล่าร์เซลล์ จำกัด',
+  'หจก. เน็ตเวิร์ก เทเลคอม',
+  'บ.อัลติโม่ คอนโทรล จำกัด',
+  'ทีมติดตั้งภายใน',
+  'อื่นๆ'
+];
+
+const PRODUCT_OWNERS = ['Simat', 'NPE', 'UC', 'UE'];
+
 const App = () => {
   const [products, setProducts] = useState([]);
   const [stockStatus, setStockStatus] = useState({ in: [], out: [] });
@@ -46,7 +56,8 @@ const App = () => {
   // Quotation specific state
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
-  const [viewingHistory, setViewingHistory] = useState(null); // New state for history modal
+  const [viewingHistory, setViewingHistory] = useState(null);
+  const [viewingEquipments, setViewingEquipments] = useState(null);
   const [qtItems, setQtItems] = useState([]);
   const [qtDiscount, setQtDiscount] = useState(0);
   const [qtProjectName, setQtProjectName] = useState('');
@@ -147,7 +158,7 @@ const App = () => {
     specification: '',
     unit: '',
     minStock: 0,
-    company: 'Ultimo Control',
+    company: 'Simat',
     image: ''
   });
 
@@ -336,6 +347,65 @@ const App = () => {
     } catch (e) {
       try { return JSON.parse(val); } catch (e2) { return fallback; }
     }
+  };
+
+  // 📦 New Helper for Partial Withdrawal Tracking
+  const getSoFulfillment = (so) => {
+    if (!so) return { items: [], totalReserved: 0, totalWithdrawn: 0, calculatedStatus: 'จองสินค้า' };
+    
+    const soId = String(getValueResilient(so, 'soid') || '').trim();
+    const soItems = safeJSONParse(getValueResilient(so, 'items'));
+    
+    // Aggregate actual withdrawals for this SO ID from stockStatus.out
+    const withdrawnMap = {};
+    (stockStatus.out || []).forEach(out => {
+      const ref = String(out['Ref No'] || out['Ref No.'] || out['Reference No'] || out['Ref'] || out['refNumber'] || '').trim();
+      if (ref === soId && ref !== '') {
+        // Match by Product ID or Name (fallback)
+        const prodId = String(out['Product ID'] || out['ID'] || '').trim();
+        const modelName = String(out['Model'] || out['ProductName'] || '').trim();
+        const qty = Number(out['Quantity'] || out.qty || 1);
+        
+        const key = prodId || modelName;
+        if (key) {
+          withdrawnMap[key] = (withdrawnMap[key] || 0) + qty;
+        }
+      }
+    });
+
+    let totalReserved = 0;
+    let totalWithdrawn = 0;
+    
+    const itemsWithFulfillment = soItems.map(it => {
+      const reserved = Number(it.qty || it.Quantity || 0);
+      const prodId = String(it.productId || it.ID || '').trim();
+      const modelName = String(it.name || it.Model || it.ProductName || '').trim();
+      
+      // Try to find withdrawal by ID first, then by Name
+      const withdrawn = (prodId && withdrawnMap[prodId]) ? withdrawnMap[prodId] : (withdrawnMap[modelName] || 0);
+      
+      const remaining = Math.max(0, reserved - withdrawn);
+      
+      totalReserved += reserved;
+      totalWithdrawn += withdrawn;
+      
+      return { ...it, reserved, withdrawn, remaining };
+    });
+
+    const currentStatus = getValueResilient(so, 'status');
+    let calculatedStatus = currentStatus;
+    
+    if (currentStatus !== 'ยกเลิก') {
+      if (totalWithdrawn <= 0) {
+        calculatedStatus = 'จองสินค้า';
+      } else if (totalWithdrawn >= totalReserved) {
+        calculatedStatus = 'จ่ายสินค้าแล้ว';
+      } else {
+        calculatedStatus = 'จ่ายบางส่วน';
+      }
+    }
+
+    return { items: itemsWithFulfillment, totalReserved, totalWithdrawn, calculatedStatus };
   };
 
   const thaiBahtText = (number) => {
@@ -746,15 +816,29 @@ const App = () => {
   const reservedStock = useMemo(() => {
     const reserves = {};
     salesOrders.forEach(so => {
-      // Treat 'จองสินค้า', 'Reserved', 'Pending' as reserved
+      // Treat 'จองสินค้า', 'Reserved', 'Pending', 'Confirmed', 'เบิกบางส่วน' as reserved
       const status = String(getValueResilient(so, 'status') || '').toLowerCase();
-      if (status === 'จองสินค้า' || status === 'reserved' || status === 'pending' || status === 'confirmed') {
+      if (status === 'จองสินค้า' || status === 'reserved' || status === 'pending' || status === 'confirmed' || status === 'เบิกบางส่วน') {
         try {
           const items = safeJSONParse(getValueResilient(so, 'items'));
+          const soId = getValueResilient(so, 'soid');
+          
           items.forEach(item => {
             const pid = item.productId || item.id;
             if (pid) {
-              reserves[pid] = (reserves[pid] || 0) + Number(item.qty || 0);
+              // Get total requested for this item in this REQ
+              const requestedQty = Number(item.qty || 0);
+              
+              // Find all actual withdrawals linked to this REQ ID for this product
+              const actualWithdrawn = stockStatus.out
+                .filter(out => {
+                  const refStr = String(out['Ref No'] || out['Ref No.'] || out['Reference No'] || '').trim();
+                  return refStr === String(soId).trim() && out['Product ID'] === pid;
+                })
+                .reduce((sum, out) => sum + parseFloat(out['Quantity'] || 1), 0);
+
+              const remainingReserved = Math.max(0, requestedQty - actualWithdrawn);
+              reserves[pid] = (reserves[pid] || 0) + remainingReserved;
             }
           });
         } catch (e) {
@@ -763,7 +847,7 @@ const App = () => {
       }
     });
     return reserves;
-  }, [salesOrders]);
+  }, [salesOrders, stockStatus.out]);
 
   const stockData = useMemo(() => {
     return products.map(product => {
@@ -913,6 +997,37 @@ const App = () => {
     );
   }, [customers, searchTerm]);
 
+  const customerEquipments = useMemo(() => {
+    if (!viewingEquipments) return [];
+    const custId = String(viewingEquipments['Customer ID'] || viewingEquipments.id || '').trim();
+    
+    // Find all SOs and Project Names associated with this customer
+    const mySOs = salesOrders.filter(so => {
+      const soCustId = String(getValueResilient(so, 'customerid') || '').trim();
+      return soCustId === custId;
+    });
+    
+    const custSoIds = mySOs.map(so => String(getValueResilient(so, 'soid') || '').trim()).filter(Boolean);
+    const custProjects = mySOs.map(so => String(getValueResilient(so, 'projectname') || '').trim().toLowerCase()).filter(Boolean);
+    
+    return stockStatus.out.filter(out => {
+      const ref = String(out.Reference || out['เลขที่อ้างอิง'] || out.reference || out.ref || '').trim();
+      const proj = String(out['Project Name'] || out['ชื่อโครงการ'] || out.project || '').trim().toLowerCase();
+      const remark = String(out.Remark || out.remark || out['หมายเหตุ'] || '').trim();
+      
+      // Match by SO ID in reference or remark
+      const matchesSO = custSoIds.some(id => ref.includes(id) || remark.includes(id));
+      // Or match by project name
+      const matchesProj = custProjects.some(pName => proj.includes(pName) || pName.includes(proj));
+      
+      return matchesSO || (proj && matchesProj);
+    }).sort((a, b) => {
+      const da = (a.Date || a.date || '').split('/').reverse().join('-');
+      const db = (b.Date || b.date || '').split('/').reverse().join('-');
+      return new Date(db) - new Date(da);
+    });
+  }, [viewingEquipments, salesOrders, stockStatus.out]);
+
   const filteredItems = useMemo(() => {
     if (currentView === 'dashboard') {
       let result = stockData.filter(item => {
@@ -938,9 +1053,13 @@ const App = () => {
       }
       return result;
     } else if (currentView === 'product_management') {
-      return products.filter(item =>
-        Object.values(item).some(val => String(val).toLowerCase().includes(searchTerm.toLowerCase()))
-      );
+      return products.filter(item => {
+        const matchesSearch = Object.values(item).some(val => String(val).toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesCategory = filterCategory === 'All' || item.Category === filterCategory;
+        const matchesBrand = filterBrand === 'All' || item.Brand === filterBrand;
+        const matchesCompany = filterCompany === 'All' || item.Company === filterCompany;
+        return matchesSearch && matchesCategory && matchesBrand && matchesCompany;
+      });
     } else if (currentView === 'serial_tracking') {
       return Object.values(reconciledStock).flatMap(agg => Object.values(agg.serials)).filter(s =>
         s.serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1426,8 +1545,9 @@ const App = () => {
                 <label>เจ้าของสินค้า (Company)</label>
                 <select className="filter-select" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)}>
                   <option value="All">ทั้งหมด</option>
-                  <option value="Simat">Simat</option>
-                  <option value="Ultimo">Ultimo</option>
+                  {PRODUCT_OWNERS.map(owner => (
+                    <option key={owner} value={owner}>{owner}</option>
+                  ))}
                 </select>
               </div>
               <div style={{ marginLeft: 'auto' }}>
@@ -1531,7 +1651,12 @@ const App = () => {
                           <td style={{ fontWeight: 600, color: THEME.secondary }}>{item.ReservedQuantity || 0}</td>
                           <td style={{ fontWeight: 800, color: THEME.primary, background: 'rgba(30, 58, 138, 0.05)' }}>{item.AvailableBalance}</td>
                           <td>
-                            <span className={`badge ${item.Company === 'Ultimo' ? 'badge-orange' : 'badge-blue'}`} style={{ fontSize: '0.7rem' }}>
+                            <span className={`badge ${
+                              item.Company === 'Simat' ? 'badge-blue' : 
+                              item.Company === 'NPE' ? 'badge-orange' : 
+                              item.Company === 'UC' ? 'badge-green' : 
+                              'badge-blue'
+                            }`} style={{ fontSize: '0.7rem' }}>
                               {item.Company || 'Simat'}
                             </span>
                           </td>
@@ -1640,6 +1765,32 @@ const App = () => {
               </div>
             </div>
 
+            {!isAddingProduct && (
+              <div className="filters-bar" style={{ marginBottom: '1.5rem' }}>
+                <div className="filter-group">
+                  <label>หมวดหมู่สินค้า</label>
+                  <select className="filter-select" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+                    {categoriesList.map(c => <option key={c} value={c}>{c === 'All' ? 'ทั้งหมด' : c}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>แบรนด์/ยี่ห้อ</label>
+                  <select className="filter-select" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
+                    {brandsList.map(b => <option key={b} value={b}>{b === 'All' ? 'ทั้งหมด' : b}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>เจ้าของสินค้า (Company)</label>
+                  <select className="filter-select" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)}>
+                    <option value="All">ทั้งหมด</option>
+                    {PRODUCT_OWNERS.map(owner => (
+                      <option key={owner} value={owner}>{owner}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {isAddingProduct ? (
               <div className="table-container" style={{ padding: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', color: THEME.primary }}>ลงทะเบียนอุปกรณ์ใหม่</h3>
@@ -1725,8 +1876,9 @@ const App = () => {
                       value={productFormData.company}
                       onChange={(e) => setProductFormData({ ...productFormData, company: e.target.value })}
                     >
-                      <option value="Simat">Simat</option>
-                      <option value="Ultimo">Ultimo</option>
+                      {PRODUCT_OWNERS.map(owner => (
+                        <option key={owner} value={owner}>{owner}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="form-group" style={{ gridColumn: 'span 2' }}>
@@ -1762,14 +1914,15 @@ const App = () => {
                         const payload = {
                           type: 'add_product',
                           values: [
-                            productFormData.id,
-                            productFormData.model,
-                            productFormData.brand,
-                            productFormData.category,
-                            productFormData.unit,
-                            productFormData.minStock,
-                            productFormData.imageUrl,
-                            productFormData.description
+                            productFormData.id,            // A: Product ID
+                            productFormData.category,      // B: Category
+                            productFormData.brand,         // C: Brand
+                            productFormData.model,         // D: Model
+                            productFormData.specification, // E: Specification
+                            productFormData.unit,          // F: Unit
+                            productFormData.minStock,      // G: Min Stock
+                            productFormData.image,         // H: Image
+                            productFormData.company        // I: Owner
                           ]
                         };
                         await fetch(GAS_API_URL, {
@@ -2393,19 +2546,22 @@ const App = () => {
                         />
                       </div>
 
-                      {/* ช่างผู้รับผิดชอบ */}
+                      {/* ทีมติดตั้ง */}
                       <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', color: '#374151' }}>
-                          ช่างผู้รับผิดชอบ <span style={{ color: '#ef4444' }}>*</span>
+                          ทีมติดตั้ง <span style={{ color: '#ef4444' }}>*</span>
                         </label>
-                        <input
-                          type="text"
-                          placeholder="ระบุชื่อช่าง..."
-                          className="search-input"
+                        <select
+                          className="filter-select"
                           style={{ width: '100%', padding: '0.75rem' }}
                           value={serviceFormData.technician}
                           onChange={(e) => setServiceFormData({ ...serviceFormData, technician: e.target.value })}
-                        />
+                        >
+                          <option value="">-- เลือกทีมติดตั้ง --</option>
+                          {INSTALLATION_TEAMS.map(team => (
+                            <option key={team} value={team}>{team}</option>
+                          ))}
+                        </select>
                       </div>
 
                       {/* สถานที่ */}
@@ -2491,7 +2647,7 @@ const App = () => {
                       <button
                         onClick={async () => {
                           if (!serviceFormData.customer || !serviceFormData.type || !serviceFormData.technician) {
-                            return alert('กรุณาระบุลูกค้า, ประเภทงาน และช่างผู้รับผิดชอบ');
+                            return alert('กรุณาระบุลูกค้า, ประเภทงาน และทีมติดตั้ง');
                           }
 
                           // 🛡️ ตรวจสอบ Serial Number ในระบบสต๊อก
@@ -2674,7 +2830,7 @@ const App = () => {
                                   <div style={{ fontWeight: 600 }}>{ticket['Appointment Date'] || '-'}</div>
                                 </div>
                                 <div style={{ color: '#64748b' }}>
-                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>ช่างที่ดูแล</div>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>ทีมติดตั้ง</div>
                                   <div style={{ fontWeight: 600 }}>{ticket['Technician'] || 'ยังไม่ระบุ'}</div>
                                 </div>
                                 <div style={{ color: '#64748b' }}>
@@ -3113,15 +3269,27 @@ const App = () => {
                         </button>
                       </div>
                       <div style={{ marginTop: '0.8rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        {requisitionTransfer.items.map((it, idx) => (
-                          <div
-                            key={idx}
-                            onClick={() => setFormData({ ...formData, productId: it.productId, qty: it.qty })}
-                            style={{ background: 'white', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid #fcd34d', cursor: 'pointer' }}
-                          >
-                            {it.name} x {it.qty}
-                          </div>
-                        ))}
+                        {(() => {
+                          const soObj = salesOrders.find(s => getValueResilient(s, 'soid') === requisitionTransfer.id);
+                          const fulfillment = getSoFulfillment(soObj);
+                          const pendingItems = fulfillment.items.filter(it => it.remaining > 0);
+                          
+                          if (pendingItems.length === 0) {
+                            return <div style={{ color: THEME.success, fontWeight: 700, padding: '0.5rem', background: '#dcfce7', borderRadius: '4px', width: '100%' }}>✅ เบิกสินค้าครบตามจำนวนที่จองแล้ว</div>;
+                          }
+                          
+                          return pendingItems.map((it, idx) => (
+                            <div
+                              key={idx}
+                              onClick={() => setFormData({ ...formData, productId: it.productId || it.ID, qty: it.remaining })}
+                              style={{ background: 'white', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.75rem', border: '1px solid #fcd34d', cursor: 'pointer', transition: 'transform 0.1s' }}
+                              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                            >
+                              {it.name || it.Model} <b>x {it.remaining}</b>
+                            </div>
+                          ));
+                        })()}
                       </div>
                       <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.7rem', color: '#b45309' }}>* คลิกที่รายการสินค้าด้านบนเพื่อดึงข้อมูลลงฟอร์ม</p>
                     </div>
@@ -3214,9 +3382,10 @@ const App = () => {
                       onChange={(e) => setFormData({ ...formData, entity: e.target.value })}
                     >
                       <option value="">เลือกหน่วยงาน...</option>
-                      <option value="Simat">Simat Technology (สำนักงานใหญ่)</option>
-                      <option value="NPE">NPE (PPA)</option>
-                      <option value="Ultimo Control">Ultimo Control (EPC)</option>
+                      <option value="Simat">Simat</option>
+                      <option value="NPE">NPE</option>
+                      <option value="UC">UC</option>
+                      <option value="UE">UE</option>
                     </select>
                   </div>
 
@@ -3386,6 +3555,45 @@ const App = () => {
                         }
                         setFormStatus({ type: 'success', message: 'Recorded successfully!' });
                         addActivityLog('Stock Transaction', `${manageMode === 'in' ? 'รับเข้า' : 'เบิกออก'}: ${formData.refNumber} (${serialsToProcess.length} รายการ)`);
+
+                        // ✅ Update Requisition Status if linked
+                        if (manageMode === 'out' && requisitionTransfer) {
+                          const soIdVal = requisitionTransfer.id;
+                          
+                          // Calculate if this SO is now fully fulfilled
+                          // We use local state plus the current serials being added
+                          const soObj = salesOrders.find(s => getValueResilient(s, 'soid') === soIdVal);
+                          const currentFulfillment = getSoFulfillment(soObj);
+                          
+                          // Current submission quantity
+                          const subQty = serialsToProcess.length || Number(formData.quantity) || 1;
+                          const newTotalWithdrawn = currentFulfillment.totalWithdrawn + subQty;
+                          
+                          let newStatus = 'จ่ายบางส่วน';
+                          if (newTotalWithdrawn >= currentFulfillment.totalReserved) {
+                            newStatus = 'จ่ายสินค้าแล้ว';
+                          }
+
+                          const updatePayload = {
+                            type: 'edit_sales_order_status',
+                            id: soIdVal,
+                            idColumn: 'SO ID',
+                            idValue: soIdVal,
+                            updates: { 'Status': newStatus, 'status': newStatus }
+                          };
+                          try {
+                            await fetch(GAS_API_URL, {
+                              method: 'POST',
+                              mode: 'no-cors',
+                              body: JSON.stringify(updatePayload)
+                            });
+                            console.log(`✅ Requisition status updated to '${newStatus}'`);
+                            setRequisitionTransfer(null);
+                          } catch (e) {
+                            console.error("❌ Failed to update requisition status", e);
+                          }
+                        }
+
                         fetchAllSheets();
                       } catch (error) {
                         setFormStatus({ type: 'error', message: 'Error: ' + error.toString() });
@@ -3477,21 +3685,27 @@ const App = () => {
                             </div>
                           </div>
 
-                          <div style={{ padding: '1rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '0.5rem' }}>
+                          <div style={{ padding: '1rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                             <button
-                              style={{ flex: 1, padding: '0.5rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
+                              style={{ flex: '1 1 45%', padding: '0.5rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
                               onClick={() => setViewingHistory(c)}
                             >
-                              📂 ดูประวัติ
+                              📂 ประวัติ SO
                             </button>
                             <button
-                              style={{ flex: 1, padding: '0.5rem', background: THEME.secondary, color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                              style={{ flex: '1 1 45%', padding: '0.5rem', background: THEME.secondary, color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
                               onClick={() => {
                                 setEditingCustomer(c);
                                 document.querySelector('form').scrollIntoView({ behavior: 'smooth' });
                               }}
                             >
                               ✏️ แก้ไข
+                            </button>
+                            <button
+                              style={{ flex: '1 1 100%', padding: '0.5rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                              onClick={() => setViewingEquipments(c)}
+                            >
+                              🔋 รายการอุปกรณ์ที่ติดตั้ง
                             </button>
                           </div>
                         </div>
@@ -3572,6 +3786,76 @@ const App = () => {
                             ไม่มีประวัติการทำรายการ
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {viewingEquipments && (
+                  <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 2000, padding: '1rem'
+                  }}>
+                    <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 }}>
+                      <div style={{ padding: '1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: '1.2rem', color: THEME.primary }}>รายการอุปกรณ์ที่ติดตั้ง: {viewingEquipments['Customer Name']}</h3>
+                          <div style={{ fontSize: '0.85rem', color: '#64748b' }}>รวมทั้งหมด {customerEquipments.length} รายการ</div>
+                        </div>
+                        <button
+                          onClick={() => setViewingEquipments(null)}
+                          style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div style={{ padding: '1.5rem', overflowY: 'auto', background: '#f8fafc', flex: 1 }}>
+                        {customerEquipments.length > 0 ? (
+                          <div className="table-container" style={{ background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <thead style={{ background: '#f1f5f9' }}>
+                                <tr>
+                                  <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.8rem' }}>วันที่</th>
+                                  <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.8rem' }}>รหัสสินค้า/รุ่น</th>
+                                  <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.8rem' }}>Serial Number</th>
+                                  <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.8rem' }}>จำนวน</th>
+                                  <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.8rem' }}>อ้างอิงใบเบิก</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {customerEquipments.map((eq, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem' }}>{eq.Date || eq.date}</td>
+                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                      <div style={{ fontWeight: 600, color: THEME.primary, fontSize: '0.85rem' }}>{eq.Model || eq.productId}</div>
+                                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{eq['Product ID']}</div>
+                                    </td>
+                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                      <span className="badge badge-blue" style={{ fontSize: '0.7rem' }}>{eq['Serial Number'] || '-'}</span>
+                                    </td>
+                                    <td style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>{eq.Quantity || 1} {eq.Unit || ''}</td>
+                                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#64748b' }}>{eq.Reference || eq.reference}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', padding: '4rem 2rem', color: '#94a3b8', background: 'white', borderRadius: '12px', border: '2px dashed #e2e8f0' }}>
+                            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📦</div>
+                            <div>ยังไม่มีข้อมูลการเบิกอุปกรณ์ไปติดตั้งสำหรับลูกค้ารายนี้</div>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ padding: '1rem', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: 'white' }}>
+                        <button
+                          onClick={() => handleExportCSV(customerEquipments, `Equipments_${viewingEquipments['Customer Name']}`)}
+                          className="btn-export"
+                          style={{ padding: '0.6rem 1.2rem' }}
+                        >
+                          📥 ดาวน์โหลดรายการ (CSV)
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -4574,7 +4858,9 @@ const App = () => {
                         {salesOrders.map((so, idx) => {
                           const customerId = getValueResilient(so, 'customerid');
                           const customer = customers.find(c => String(c['Customer ID'] || '').trim() === String(customerId || '').trim());
-                          const status = getValueResilient(so, 'status');
+                          const fulfillment = getSoFulfillment(so);
+                          const status = fulfillment.calculatedStatus;
+
                           return (
                             <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '1rem', fontWeight: 600 }}>{getValueResilient(so, 'soid')}</td>
@@ -4585,7 +4871,12 @@ const App = () => {
                               </td>
                               <td style={{ padding: '1rem', color: THEME.secondary, fontWeight: 600 }}>{getValueResilient(so, 'qtref') || '-'}</td>
                               <td style={{ padding: '1rem', fontWeight: 700, color: THEME.primary }}>
-                                {(Number(getValueResilient(so, 'totalquantity')) || safeJSONParse(getValueResilient(so, 'items')).reduce((sum, item) => sum + Number(item.qty || item.Quantity || 0), 0))} ชิ้น
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: '1.2rem', color: fulfillment.totalWithdrawn < fulfillment.totalReserved && fulfillment.totalWithdrawn > 0 ? '#3b82f6' : 'inherit' }}>
+                                    {fulfillment.totalWithdrawn} / {fulfillment.totalReserved}
+                                  </div>
+                                  <div style={{ fontSize: '0.65rem', color: '#64748b' }}>เบิกแล้ว / จองทั้งหมด</div>
+                                </div>
                               </td>
                               <td style={{ padding: '1rem' }}>
                                 <span
@@ -4594,8 +4885,8 @@ const App = () => {
                                     borderRadius: '20px',
                                     fontSize: '0.75rem',
                                     fontWeight: 600,
-                                    backgroundColor: status === 'ยกเลิก' ? '#fee2e2' : (status?.includes('จอง') ? '#fef3c7' : '#dcfce7'),
-                                    color: status === 'ยกเลิก' ? '#dc2626' : (status?.includes('จอง') ? '#d97706' : '#166534'),
+                                    backgroundColor: status === 'ยกเลิก' ? '#fee2e2' : (status === 'จ่ายบางส่วน' ? '#eff6ff' : (status?.includes('จอง') ? '#fef3c7' : '#dcfce7')),
+                                    color: status === 'ยกเลิก' ? '#dc2626' : (status === 'จ่ายบางส่วน' ? '#3b82f6' : (status?.includes('จอง') ? '#d97706' : '#166534')),
                                     display: 'inline-block'
                                   }}
                                 >
@@ -4743,24 +5034,31 @@ const App = () => {
                     <thead>
                       <tr style={{ textAlign: 'left', background: '#f8fafc', color: '#64748b', fontSize: '0.85rem' }}>
                         <th style={{ padding: '1rem' }}>รายการสินค้า</th>
-                        <th style={{ padding: '1rem', textAlign: 'center' }}>จำนวน</th>
-
+                        <th style={{ padding: '1rem', textAlign: 'center' }}>จอง (Reserved)</th>
+                        <th style={{ padding: '1rem', textAlign: 'center' }}>เบิกแล้ว (Withdrawn)</th>
+                        <th style={{ padding: '1rem', textAlign: 'center' }}>คงเหลือ (Remaining)</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {safeJSONParse(getValueResilient(selectedSoForView, 'items')).map((it, idx) => (
-                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '1rem' }}>
-                            <div style={{ fontWeight: 600, color: THEME.primary }}>{it.name || it.Model || it.ProductName}</div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                              {it.brand && <span style={{ marginRight: '0.5rem' }}>แบรนด์: {it.brand}</span>}
-                              <span>รหัส: {it.productId || it.ID}</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 700 }}>{it.qty || it.Quantity || 0} {it.unit || 'ชิ้น'}</td>
-
-                        </tr>
-                      ))}
+                      {(() => {
+                        const fulfillment = getSoFulfillment(selectedSoForView);
+                        return fulfillment.items.map((it, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1rem' }}>
+                              <div style={{ fontWeight: 600, color: THEME.primary }}>{it.name || it.Model || it.ProductName}</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                {it.brand && <span style={{ marginRight: '0.5rem' }}>แบรนด์: {it.brand}</span>}
+                                <span>รหัส: {it.productId || it.ID}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 600 }}>{it.reserved} {it.unit || 'ชิ้น'}</td>
+                            <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 600, color: it.withdrawn > 0 ? '#059669' : 'inherit' }}>{it.withdrawn} {it.unit || 'ชิ้น'}</td>
+                            <td style={{ padding: '1rem', textAlign: 'center', fontWeight: 700, color: it.remaining > 0 ? '#dc2626' : '#059669' }}>
+                              {it.remaining > 0 ? `+${it.remaining}` : 'ครบแล้ว'}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
