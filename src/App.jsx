@@ -59,6 +59,8 @@ const App = () => {
   const [viewingHistory, setViewingHistory] = useState(null);
   const [viewingEquipments, setViewingEquipments] = useState(null);
   const [editingServiceStatus, setEditingServiceStatus] = useState(null); // { ticket, nextStatus }
+  const [selectedBrokenItem, setSelectedBrokenItem] = useState('');
+  const [brokenSN, setBrokenSN] = useState('');
   const [qtItems, setQtItems] = useState([]);
   const [qtDiscount, setQtDiscount] = useState(0);
   const [qtProjectName, setQtProjectName] = useState('');
@@ -2501,7 +2503,12 @@ const App = () => {
                             setServiceFormData({
                               ...serviceFormData,
                               customer: selectedId,
-                              location: address || serviceFormData.location // Only overwrite if address exists
+                              location: selectedCust ? (
+                                getValueResilient(selectedCust, 'address') || 
+                                selectedCust['สถานที่ติดตั้ง'] ||
+                                Object.values(selectedCust).find(v => String(v).includes('เขต') || String(v).includes('แขวง') || String(v).includes('จ.')) ||
+                                ''
+                              ) : ''
                             });
                           }}
                         >
@@ -2675,18 +2682,20 @@ const App = () => {
                             const payload = {
                               type: 'add_service',
                               values: [
-                                ticketId,
-                                serviceFormData.appointmentDate,
-                                new Date().toLocaleDateString('th-TH'),
-                                serviceFormData.customer,
-                                customerName,
-                                serviceFormData.type,
-                                serviceFormData.technician,
-                                'Pending',
-                                serviceFormData.description,
-                                serviceFormData.location,
-                                serviceFormData.serialNumber,
-                                serviceFormData.resolution
+                                ticketId,                                 // A: Ticket ID
+                                serviceFormData.appointmentDate,          // B: Appointment Date
+                                new Date().toLocaleDateString('th-TH'),   // C: Date Created
+                                '',                                       // D: Start Date (ว่าง)
+                                '',                                       // E: Finish Date (ว่าง)
+                                serviceFormData.customer,                 // F: Customer ID
+                                customerName,                             // G: Customer Name
+                                serviceFormData.type,                     // H: Service Type
+                                serviceFormData.technician,               // I: Technician
+                                'Pending',                                // J: Status
+                                serviceFormData.description,              // K: Notes
+                                serviceFormData.location,                 // L: Address
+                                serviceFormData.serialNumber,             // M: Serial Number
+                                serviceFormData.resolution                // N: Resolution
                               ]
                             };
                             await fetch(GAS_API_URL, {
@@ -2831,6 +2840,18 @@ const App = () => {
                                   <div style={{ fontWeight: 600 }}>{ticket['Appointment Date'] || '-'}</div>
                                 </div>
                                 <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>วันที่เริ่มงาน</div>
+                                  <div style={{ fontWeight: 600, color: '#0284c7' }}>
+                                    {Object.entries(ticket).find(([k]) => k.toLowerCase().includes('start') || k.includes('เริ่ม') || k.includes('ติดตั้ง'))?.[1] || '-'}
+                                  </div>
+                                </div>
+                                <div style={{ color: '#64748b' }}>
+                                  <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>วันที่ปิดงาน</div>
+                                  <div style={{ fontWeight: 600, color: '#059669' }}>
+                                    {Object.entries(ticket).find(([k]) => k.toLowerCase().includes('finish') || k.toLowerCase().includes('closed') || k.includes('เสร็จ') || k.includes('ปิด'))?.[1] || '-'}
+                                  </div>
+                                </div>
+                                <div style={{ color: '#64748b' }}>
                                   <div style={{ fontWeight: 600, color: '#94a3b8', fontSize: '0.7rem', textTransform: 'uppercase' }}>ทีมติดตั้ง</div>
                                   <div style={{ fontWeight: 600 }}>{ticket['Technician'] || 'ยังไม่ระบุ'}</div>
                                 </div>
@@ -2848,13 +2869,21 @@ const App = () => {
                               <div style={{ marginTop: 'auto', display: 'flex', gap: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
                                 {(status === 'Pending' || status === 'รอดำเนินการ') && (
                                   <button
-                                    onClick={() => setEditingServiceStatus({ ticket, nextStatus: 'In Progress', title: 'เริ่มดำเนินงานเซอร์วิส' })}
+                                    onClick={() => {
+                                      setEditingServiceStatus({ ticket, nextStatus: 'In Progress', title: 'เริ่มดำเนินงานเซอร์วิส' });
+                                      setSelectedBrokenItem('');
+                                      setBrokenSN('');
+                                    }}
                                     style={{ flex: 1, padding: '0.6rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
                                   >⏳ เริ่มงาน</button>
                                 )}
                                 {(status === 'In Progress' || status === 'กำลังดำเนินการ') && (
                                   <button
-                                    onClick={() => setEditingServiceStatus({ ticket, nextStatus: 'Completed', title: 'เสร็จสิ้นงานเซอร์วิส' })}
+                                    onClick={() => {
+                                      setEditingServiceStatus({ ticket, nextStatus: 'Completed', title: 'เสร็จสิ้นงานเซอร์วิส' });
+                                      setSelectedBrokenItem('');
+                                      setBrokenSN('');
+                                    }}
                                     style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}
                                   >✅ ปิดงาน</button>
                                 )}
@@ -2899,15 +2928,62 @@ const App = () => {
                             <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.25rem' }}>ลูกค้า:</div>
                             <div style={{ fontWeight: 700 }}>{editingServiceStatus.ticket['Customer Name']}</div>
                           </div>
+                          {editingServiceStatus.nextStatus === 'Completed' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem', padding: '1rem', background: '#f1f5f9', borderRadius: '12px' }}>
+                              <div style={{ gridColumn: 'span 2' }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#475569', marginBottom: '0.5rem' }}>🔧 ข้อมูลอุปกรณ์ที่เสีย/เปลี่ยน</div>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>ชื่ออุปกรณ์</label>
+                                <select
+                                  className="filter-select"
+                                  style={{ width: '100%', fontSize: '0.85rem' }}
+                                  value={selectedBrokenItem}
+                                  onChange={e => setSelectedBrokenItem(e.target.value)}
+                                >
+                                  <option value="">-- เลือกอุปกรณ์ --</option>
+                                  {(products || []).map((p, i) => {
+                                    const pName = p['Product Name'] || p['Model'] || p['Name'] || Object.values(p)[1] || 'Unknown Item';
+                                    return (
+                                      <option key={i} value={pName}>{pName}</option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Serial Number</label>
+                                <input
+                                  type="text"
+                                  className="search-input"
+                                  style={{ width: '100%', fontSize: '0.85rem' }}
+                                  placeholder="S/N ตัวที่เสีย..."
+                                  value={brokenSN}
+                                  onChange={e => setBrokenSN(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          )}
+
                           <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.9rem' }}>
                             รายละเอียดความคืบหน้า / ผลการแก้ไข:
                           </label>
                           <textarea
                             id="service-resolution-input"
                             defaultValue={getValueResilient(editingServiceStatus.ticket, 'resolution') || ''}
-                            style={{ width: '100%', minHeight: '120px', padding: '0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'inherit' }}
-                            placeholder="พิมพ์รายละเอียดที่นี่..."
+                            style={{ width: '100%', minHeight: '80px', padding: '0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'inherit', marginBottom: '1rem' }}
+                            placeholder="พิมพ์รายละเอียดการแก้ไขที่นี่..."
                           />
+                          
+                          <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                            {editingServiceStatus.nextStatus === 'In Progress' ? '📅 วันที่เริ่มงาน/ติดตั้ง:' : '📅 วันที่เสร็จสิ้น/ปิดงาน:'}
+                          </label>
+                          <input
+                            type="date"
+                            id="service-date-input"
+                            defaultValue={new Date().toISOString().split('T')[0]}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                          />
+
                           <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
                             <button
                               onClick={() => setEditingServiceStatus(null)}
@@ -2916,22 +2992,38 @@ const App = () => {
                             <button
                               disabled={formLoading}
                               onClick={async () => {
-                                const res = document.getElementById('service-resolution-input').value;
+                                const baseRes = document.getElementById('service-resolution-input').value;
+                                const selectedDate = document.getElementById('service-date-input').value;
                                 const { ticket, nextStatus } = editingServiceStatus;
+
+                                // รวมข้อมูลอุปกรณ์เสียเข้าไปใน Resolution
+                                let finalRes = baseRes;
+                                if (selectedBrokenItem) {
+                                  finalRes = `[เสีย: ${selectedBrokenItem}${brokenSN ? ` S/N: ${brokenSN}` : ''}] ${baseRes}`;
+                                }
+
                                 setFormLoading(true);
                                 try {
                                   const idCol = Object.keys(ticket).find(k => k.toLowerCase().replace(/\s/g, '') === 'ticketid' || k.toLowerCase() === 'id' || k === 'รหัสงาน') || 'Ticket ID';
                                   const idVal = ticket[idCol] || ticket['Ticket ID'] || ticket['id'];
                                   const resKey = Object.keys(ticket).find(k => k.toLowerCase().includes('resolution') || k.toLowerCase().includes('problem')) || 'Resolution/Problems';
                                   
+                                  const dateKey = nextStatus === 'In Progress' 
+                                    ? (Object.keys(ticket).find(k => k.toLowerCase().includes('start date') || k.includes('เริ่มงาน')) || 'Start Date')
+                                    : (Object.keys(ticket).find(k => k.toLowerCase().includes('finish date') || k.includes('เสร็จสิ้น') || k.includes('ปิดงาน')) || 'Finish Date');
+
                                   const payload = {
                                     type: 'update_service_status',
                                     idColumn: idCol,
                                     idValue: idVal,
-                                    updates: { 'Status': nextStatus, [resKey]: res }
+                                    updates: { 
+                                      'Status': nextStatus === 'In Progress' ? 'กำลังดำเนินการ' : 'เสร็จสิ้น', 
+                                      [resKey]: finalRes,
+                                      [dateKey]: selectedDate
+                                    }
                                   };
                                   await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
-                                  alert('อัปเดตสถานะสำเร็จ!');
+                                  alert('บันทึกข้อมูลสำเร็จ!');
                                   setEditingServiceStatus(null);
                                   fetchAllSheets();
                                 } catch (e) { alert('เกิดข้อผิดพลาด'); } finally { setFormLoading(false); }
