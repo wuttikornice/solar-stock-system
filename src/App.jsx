@@ -1,12 +1,29 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, Cell, PieChart, Pie
-} from 'recharts';
+import Dashboard from './components/Dashboard';
+import ProductManagement from './components/ProductManagement';
+import SerialTracking from './components/SerialTracking';
+import Reports from './components/Reports';
+import ServiceView from './components/ServiceView';
+import ManageStock from './components/ManageStock';
+import CRM from './components/CRM';
+import Quotation from './components/Quotation';
+import SalesOrder from './components/SalesOrder';
 
 const BASE_URL = 'https://docs.google.com/spreadsheets/d/1k11Jp6OXGdzn8Q8Rzt-cA7WjCwGSaIAoCuwuZe8Xfac/export?format=csv';
 const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbz7ICpezvo7a38B73XEOK-lWcewU7ziQ0qZMLkj0NOg-fNebDAs8Gu8nRGTxdI2GA/exec';
+const API_SECRET = import.meta.env.VITE_API_SECRET || '';
+
+const gasPost = (payload) => fetch(GAS_API_URL, {
+  method: 'POST',
+  mode: 'no-cors',
+  body: JSON.stringify({ ...payload, _secret: API_SECRET })
+});
+
+const gasPostWithResponse = (payload) => fetch(GAS_API_URL, {
+  method: 'POST',
+  body: JSON.stringify({ ...payload, _secret: API_SECRET })
+});
 
 const GIDS_INITIAL = {
   PRODUCTS: '0',
@@ -173,6 +190,7 @@ const App = () => {
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [filterCompany, setFilterCompany] = useState('All');
   const [showLowStockAlerts, setShowLowStockAlerts] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
   // Material Requisition Transfer State
@@ -527,23 +545,20 @@ const App = () => {
 
   const addActivityLog = async (action, details = '', userOverride = null) => {
     const logUser = userOverride || currentUser;
+    const resolvedUsername = logUser?.Username?.trim() || logUser?.Name?.trim() || 'guest';
+    const resolvedRole = logUser?.Role?.trim() || '-';
+    const resolvedName = logUser?.Name?.trim() || resolvedUsername;
     try {
-      await fetch(GAS_API_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify({
-          type: 'log',
-          timestamp: new Date().toLocaleString('th-TH'),
-          username: logUser?.Username || logUser?.Name || 'guest',
-          action: action,
-          details: details,
-          values: [
-            new Date().toLocaleString('th-TH'),
-            logUser?.Username || logUser?.Name || 'guest',
-            action,
-            details
-          ]
-        })
+      await gasPost({
+        type: 'log',
+        values: [
+          new Date().toLocaleString('th-TH'),
+          resolvedUsername,
+          resolvedRole,
+          resolvedName,
+          action,
+          details
+        ]
       });
     } catch (err) {
       console.error('Failed to log activity:', err);
@@ -560,8 +575,8 @@ const App = () => {
       u.Password?.trim() === loginData.password.trim()
     );
 
-    if (foundUser || (users.length === 0 && loginData.username === 'admin' && loginData.password === 'admin123')) {
-      const user = foundUser || { Name: 'Administrator', Username: 'admin', Role: 'Admin' };
+    if (foundUser) {
+      const user = foundUser;
       setIsLoggedIn(true);
       setCurrentUser(user);
       setLastActivity(Date.now());
@@ -570,8 +585,11 @@ const App = () => {
       setFormData(prev => ({ ...prev, person: user.Name }));
       addActivityLog('Login', `เข้าสู่ระบบสำเร็จ (${user.Role})`, user);
     } else {
-      setAuthError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
-      addActivityLog('Login Failed', `พยายามเข้าใช้งานด้วยชื่อ: ${loginData.username}`);
+      const errorMsg = users.length === 0
+        ? 'ระบบยังโหลดข้อมูลผู้ใช้ไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่'
+        : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+      setAuthError(errorMsg);
+      addActivityLog('Login Failed', `พยายามเข้าใช้งานด้วยชื่อ: ${loginData.username}`, { Username: loginData.username, Role: 'Unknown', Name: loginData.username });
     }
   };
 
@@ -626,11 +644,7 @@ const App = () => {
     if (!window.confirm('ระบบจะตรวจสอบและสร้างแผ่นงานที่จำเป็น (Customers, Quotations, SO, etc.) ใน Google Sheet ของคุณ ต้องการดำเนินการใช่หรือไม่?')) return;
     setLoading(true);
     try {
-      const response = await fetch(GAS_API_URL, {
-        method: 'POST',
-
-        body: JSON.stringify({ type: 'init_sales_sheets' })
-      });
+      const response = await gasPostWithResponse({ type: 'init_sales_sheets' });
       // Note: GAS CORS might lead to opaque response, so we might need the user to tell us it's done or use a better way.
       // But we can try to get the GIDs if possible.
       alert('เริ่มการตั้งค่าฐานข้อมูล... กรุณารอ 10-20 วินาทีเพื่อให้ Google Sheets อัปเดต หากไม่พบความเปลี่ยนแปลง กรุณารีเฟรชหน้าเว็บ');
@@ -1271,24 +1285,30 @@ const App = () => {
 
   return (
     <div className="app-container">
-      <aside className="sidebar">
-        <h2><span style={{ color: THEME.secondary }}>☀️</span> CMI Solar</h2>
+      <aside className={`sidebar${sidebarOpen ? ' sidebar-open' : ''}`}>
+        <h2>
+          <span style={{ color: THEME.secondary }}>☀️</span> CMI Solar
+          <button
+            className="hamburger-close"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="ปิดเมนู"
+          >✕</button>
+        </h2>
         <nav style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); }}>🏠 ภาพรวมสต๊อก</div>
+          <div className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`} onClick={() => { setCurrentView('dashboard'); setExpandedProduct(null); setSidebarOpen(false); }}>🏠 ภาพรวมสต๊อก</div>
 
           <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>งานคลังสินค้า (Inventory)</div>
-          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => setCurrentView('manage_stock')}>⚙️ บันทึก รับ-จ่าย</div>
-          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => setCurrentView('serial_tracking')}>🔍 ติดตามซีเรียล</div>
-          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => setCurrentView('product_management')}>📦 ฐานข้อมูลสินค้า</div>
+          <div className={`nav-item ${currentView === 'manage_stock' ? 'active' : ''}`} onClick={() => { setCurrentView('manage_stock'); setSidebarOpen(false); }}>⚙️ บันทึก รับ-จ่าย</div>
+          <div className={`nav-item ${currentView === 'serial_tracking' ? 'active' : ''}`} onClick={() => { setCurrentView('serial_tracking'); setSidebarOpen(false); }}>🔍 ติดตามซีเรียล</div>
+          <div className={`nav-item ${currentView === 'product_management' ? 'active' : ''}`} onClick={() => { setCurrentView('product_management'); setSidebarOpen(false); }}>📦 ฐานข้อมูลสินค้า</div>
 
           <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>งานขาย & บริการ (Sales & CRM)</div>
-          <div className={`nav-item ${currentView === 'crm' ? 'active' : ''}`} onClick={() => setCurrentView('crm')}>👥 ข้อมูลลูกค้า (CRM)</div>
-          {/* <div className={`nav-item ${currentView === 'quotation' ? 'active' : ''}`} onClick={() => setCurrentView('quotation')}>📄 ใบเสนอราคา (QT)</div> */}
-          <div className={`nav-item ${currentView === 'sales_order' ? 'active' : ''}`} onClick={() => setCurrentView('sales_order')}>📦 ใบเบิก/จองสินค้าติดตั้ง</div>
-          <div className={`nav-item ${currentView === 'service' ? 'active' : ''}`} onClick={() => { setCurrentView('service'); setServiceSubView('jobs'); }}>🛠️ งานเซอร์วิส & นัดหมาย</div>
+          <div className={`nav-item ${currentView === 'crm' ? 'active' : ''}`} onClick={() => { setCurrentView('crm'); setSidebarOpen(false); }}>👥 ข้อมูลลูกค้า (CRM)</div>
+          <div className={`nav-item ${currentView === 'sales_order' ? 'active' : ''}`} onClick={() => { setCurrentView('sales_order'); setSidebarOpen(false); }}>📦 ใบเบิก/จองสินค้าติดตั้ง</div>
+          <div className={`nav-item ${currentView === 'service' ? 'active' : ''}`} onClick={() => { setCurrentView('service'); setServiceSubView('jobs'); setSidebarOpen(false); }}>🛠️ งานเซอร์วิส & นัดหมาย</div>
 
           <div style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '1rem' }}>รายงาน & แอดมิน</div>
-          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => setCurrentView('reports')}>📊 รายงานสรุป</div>
+          <div className={`nav-item ${currentView === 'reports' ? 'active' : ''}`} onClick={() => { setCurrentView('reports'); setSidebarOpen(false); }}>📊 รายงานสรุป</div>
         </nav>
         <div style={{
           marginTop: 'auto',
@@ -1329,8 +1349,22 @@ const App = () => {
         </div>
       </aside>
 
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <main className="main-content">
         <header className="header" style={{ marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button
+              className="hamburger-btn"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="เปิดเมนู"
+            >
+              <span /><span /><span />
+            </button>
           <div>
             <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: THEME.primary }}>
               {currentView === 'dashboard' && 'ศูนย์ควบคุมสต๊อกสินค้า'}
@@ -1353,6 +1387,7 @@ const App = () => {
               {currentView === 'sales_order' && 'จัดการรายการจองสต๊อกและคำสั่งซื้อคอนเฟิร์ม'}
               {currentView === 'service' && 'ติดตามคิวงานติดตั้งและงานซ่อมบำรุง'}
             </p>
+          </div>
           </div>
           <input type="text" placeholder="Search..." className="search-input" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </header>
@@ -1928,12 +1963,10 @@ const App = () => {
                             productFormData.company        // I: Owner
                           ]
                         };
-                        await fetch(GAS_API_URL, {
-                          method: 'POST',
-                          mode: 'no-cors',
-                          body: JSON.stringify(payload)
-                        });
+                        await gasPost(payload);
                         setFormStatus({ type: 'success', message: 'Product added successfully!' });
+                        setProductFormData({ id: '', category: '', brand: '', model: '', specification: '', unit: '', minStock: 0, company: 'Simat', image: '' });
+                        setIsAddingProduct(false);
                         fetchAllSheets();
                       } catch (err) {
                         setFormStatus({ type: 'error', message: 'Failed to add product: ' + err.toString() });
@@ -2698,11 +2731,7 @@ const App = () => {
                                 serviceFormData.resolution                // N: Resolution
                               ]
                             };
-                            await fetch(GAS_API_URL, {
-                              method: 'POST',
-                              mode: 'no-cors',
-                              body: JSON.stringify(payload)
-                            });
+                            await gasPost(payload);
                             console.log('Fetch dispatched to GAS');
                             alert('บันทึกงานเซอร์วิสสำเร็จ!');
                             setServiceFormData({
@@ -3022,7 +3051,7 @@ const App = () => {
                                       [dateKey]: selectedDate
                                     }
                                   };
-                                  await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                  await gasPost(payload);
                                   alert('บันทึกข้อมูลสำเร็จ!');
                                   setEditingServiceStatus(null);
                                   fetchAllSheets();
@@ -3178,7 +3207,7 @@ const App = () => {
                         };
                         setFormLoading(true);
                         try {
-                          await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                          await gasPost(payload);
                           alert('บันทึกข้อมูลการเคลมสำเร็จ!');
                           setClaimFormData({ jobId: '', customer: '', productId: '', model: '', serialNumber: '', description: '', status: 'Received' });
                           fetchAllSheets();
@@ -3257,7 +3286,7 @@ const App = () => {
                                   setFormLoading(true);
                                   try {
                                     const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Checking' } };
-                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    await gasPost(payload);
                                     alert('อัปเดตสถานะการตรวจสอบเรียบร้อย');
                                     fetchAllSheets();
                                   } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
@@ -3272,7 +3301,7 @@ const App = () => {
                                   setFormLoading(true);
                                   try {
                                     const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Sent to Vendor' } };
-                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    await gasPost(payload);
                                     alert('อัปเดตสถานะการส่งเคลมเรียบร้อย');
                                     fetchAllSheets();
                                   } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
@@ -3287,7 +3316,7 @@ const App = () => {
                                   setFormLoading(true);
                                   try {
                                     const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Returning' } };
-                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    await gasPost(payload);
                                     alert('ได้รับสินค้าคืนจากโรงงานแล้ว');
                                     fetchAllSheets();
                                   } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
@@ -3302,7 +3331,7 @@ const App = () => {
                                   setFormLoading(true);
                                   try {
                                     const payload = { type: 'update_claim_status', idColumn: 'Claim ID', idValue: claim.ClaimID || claim['Claim ID'], updates: { 'Status': 'Returned' } };
-                                    await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                    await gasPost(payload);
                                     alert('ส่งมอบคืนลูกค้าเรียบร้อย');
                                     fetchAllSheets();
                                   } catch (e) { alert('ผิดพลาด'); } finally { setFormLoading(false); }
@@ -3670,15 +3699,26 @@ const App = () => {
                           // Send type and values array for the GAS script to process
                           const payload = { type: manageMode, values };
 
-                          await fetch(GAS_API_URL, {
-                            method: 'POST',
-
-                            body: JSON.stringify(payload)
-                          });
+                          await gasPostWithResponse(payload);
                           if (serialsToProcess.length > 1) await new Promise(r => setTimeout(r, 200));
                         }
                         setFormStatus({ type: 'success', message: 'Recorded successfully!' });
                         addActivityLog('Stock Transaction', `${manageMode === 'in' ? 'รับเข้า' : 'เบิกออก'}: ${formData.refNumber} (${serialsToProcess.length} รายการ)`);
+                        setFormData({
+                          productId: '',
+                          serial: '',
+                          bulkSerials: '',
+                          entity: '',
+                          projectType: '',
+                          refNumber: '',
+                          date: new Date().toISOString().split('T')[0],
+                          project: '',
+                          person: currentUser?.Name || currentUser?.Username || '',
+                          remark: '',
+                          qty: 1
+                        });
+                        setBulkMode(false);
+                        setNoSerial(false);
 
                         // ✅ Update Requisition Status if linked
                         if (manageMode === 'out' && requisitionTransfer) {
@@ -3706,11 +3746,7 @@ const App = () => {
                             updates: { 'Status': newStatus, 'status': newStatus }
                           };
                           try {
-                            await fetch(GAS_API_URL, {
-                              method: 'POST',
-                              mode: 'no-cors',
-                              body: JSON.stringify(updatePayload)
-                            });
+                            await gasPost(updatePayload);
                             console.log(`✅ Requisition status updated to '${newStatus}'`);
                             setRequisitionTransfer(null);
                           } catch (e) {
@@ -4035,11 +4071,7 @@ const App = () => {
 
                       setFormLoading(true);
                       try {
-                        await fetch(GAS_API_URL, {
-                          method: 'POST',
-                          mode: 'no-cors',
-                          body: JSON.stringify(payload)
-                        });
+                        await gasPost(payload);
                         alert(isEdit ? 'แก้ไขข้อมูลลูกค้าเรียบร้อยแล้ว' : 'บันทึกข้อมูลลูกค้าเรียบร้อยแล้ว');
                         await addActivityLog('CRM', isEdit ? `แก้ไขลูกค้า: ${form.name.value}` : `เพิ่มลูกค้าใหม่: ${form.name.value}`);
                         fetchAllSheets();
@@ -4407,11 +4439,7 @@ const App = () => {
 
                           setFormLoading(true);
                           try {
-                            await fetch(GAS_API_URL, {
-                              method: 'POST',
-
-                              body: JSON.stringify(qtData)
-                            });
+                            await gasPostWithResponse(qtData);
                             alert(editingQt ? 'แก้ไขใบเสนอราคาสำเร็จ!' : 'บันทึกใบเสนอราคาสำเร็จ!');
                             setQtItems([]);
                             setQtDiscount(0);
@@ -4935,11 +4963,7 @@ const App = () => {
 
                           setFormLoading(true);
                           try {
-                            await fetch(GAS_API_URL, {
-                              method: 'POST',
-                              mode: 'no-cors',
-                              body: JSON.stringify(payload)
-                            });
+                            await gasPost(payload);
                             alert(isEdit ? 'แก้ไขใบเบิกเรียบร้อยแล้ว!' : 'บันทึกใบเบิกและจองสต๊อกสำเร็จ!');
                             setSoItems([]);
                             setSoProjectName('');
@@ -5083,7 +5107,7 @@ const App = () => {
                                       updates: { 'Status': 'ยกเลิก', 'status': 'ยกเลิก' }
                                     };
                                     try {
-                                      await fetch(GAS_API_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+                                      await gasPost(payload);
                                       setSalesOrders(prev => prev.map(order => {
                                         if (getValueResilient(order, 'soid') === soIdVal) {
                                           const newOrder = { ...order, Status: 'ยกเลิก', status: 'ยกเลิก' };

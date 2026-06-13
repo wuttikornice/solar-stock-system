@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
 :root {
   --primary: #004a99;
   /* Professional Solar Blue */
@@ -118,7 +120,7 @@ td {
   font-size: 0.875rem;
 }
 
-.tr:hover {
+tr:hover {
   background: #f8fafc;
   cursor: pointer;
 }
@@ -207,9 +209,11 @@ td {
 }
 
 .nav-item.active {
-  background: var(--primary);
+  background: rgba(255, 255, 255, 0.12);
   color: white;
-  box-shadow: 0 4px 12px rgba(30, 58, 138, 0.3);
+  font-weight: 600;
+  border-left: 3px solid var(--secondary);
+  padding-left: calc(1rem - 3px);
 }
 
 /* Serial Tracking & Timeline */
@@ -263,19 +267,66 @@ td {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.hamburger-btn:hover { background: #f1f5f9; }
+.hamburger-btn span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+}
+
+.hamburger-close {
+  display: none;
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.hamburger-close:hover { color: white; background: rgba(255,255,255,0.1); }
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 99;
+}
+
 @media (max-width: 1024px) {
-  .app-container {
-    flex-direction: column;
-  }
+  .hamburger-btn   { display: flex; }
+  .hamburger-close { display: block; }
+  .sidebar-overlay { display: block; }
 
   .sidebar {
-    width: 100%;
-    padding: 1rem;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 270px;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    overflow-y: auto;
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
   }
 
-  .search-input {
-    width: 200px;
-  }
+  .search-input { width: 160px; }
 }
 
 /* Stock Status Badges */
